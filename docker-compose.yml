@@ -1,0 +1,29 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg18
+    container_name: academic_pgvector
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required in .env}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  localstack:
+    image: localstack/localstack:latest
+    container_name: academic_s3_local
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=s3
+      - DEFAULT_REGION=ap-south-1
+
+volumes:
+  pgdata:
