@@ -27,6 +27,7 @@ dependencies = [
     "opentelemetry-instrumentation-fastapi>=0.66b2",
     "opentelemetry-sdk>=1.45.2",
     "pgvector>=0.5.1",
+    "psycopg[binary]>=3.3.8",
     "pydantic-settings>=2.16.2",
     "pypdf>=6.21.4",
     "python-jose[cryptography]>=3.5.0",

@@ -15,12 +15,21 @@ class Document(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True, nullable=False)
     workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True, nullable=False)
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
-    doc_type: Mapped[str] = mapped_column(String(50), default="notes") # syllabus | notes | paper | policy
+    doc_type: Mapped[str] = mapped_column(
+        String(50), default="notes", server_default="notes"
+    )
     s3_key: Mapped[str] = mapped_column(Text, nullable=False)
-    processing_status: Mapped[str] = mapped_column(String(32), default="PENDING") # PENDING | PROCESSING | READY | FAILED | ARCHIVED
-    vector_store_location: Mapped[str] = mapped_column(String(32), default="PGVECTOR") # PGVECTOR | S3_VECTORS
-    page_count: Mapped[int] = mapped_column(Integer, default=0)
+    processing_status: Mapped[str] = mapped_column(
+        String(32), default="PENDING", server_default="PENDING"
+    )
+    vector_store_location: Mapped[str] = mapped_column(
+        String(32), default="PGVECTOR", server_default="PGVECTOR"
+    )
+    page_count: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0"
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
 
 class DocumentChunk(Base):
     __tablename__ = "document_chunks"

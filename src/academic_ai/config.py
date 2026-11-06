@@ -10,10 +10,6 @@ class Settings(BaseSettings):
     postgres_port: int = 5432
     database_url: str
 
-    # --- Redis queue ---
-    redis_host: str = "localhost"
-    redis_port: int = 6379
-
     # --- AWS ---
     aws_region: str = Field(
         default="us-east-1",
@@ -23,12 +19,18 @@ class Settings(BaseSettings):
     s3_bucket: str = "academic-docs-local"
     s3_endpoint_url: str | None = "http://localhost:4566"
 
+    # --- SQS ---
+    sqs_endpoint_url: str | None = "http://localhost:4566"
+    sqs_queue_name: str = "ingestion-jobs"
+    sqs_queue_url: str = ""
+    sqs_dlq_url: str = ""
+
     # --- Embeddings ---
-    embedding_provider: str = "bedrock"          # "bedrock" | "openai"
+    embedding_provider: str = "bedrock"
     embedding_model_id: str = "amazon.titan-embed-text-v2:0"
     embedding_dimensions: int = 1024
 
-    # --- OpenAI (optional, only used if embedding_provider == "openai") ---
+    # --- OpenAI fallback ---
     openai_api_key: str | None = None
     openai_model: str | None = None
 
@@ -37,7 +39,7 @@ class Settings(BaseSettings):
     chunk_overlap_tokens: int = 100
 
     # --- Ingestion ---
-    ingestion_visibility_ms: int = 300_000
+    ingestion_visibility_seconds: int = 300
     ingestion_max_retries: int = 5
 
     model_config = SettingsConfigDict(
