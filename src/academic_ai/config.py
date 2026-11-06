@@ -42,6 +42,13 @@ class Settings(BaseSettings):
     ingestion_visibility_seconds: int = 300
     ingestion_max_retries: int = 5
 
+    # --- UI / API ---
+    api_base_url: str = "http://localhost:8000"
+    api_host: str = "0.0.0.0"
+    api_port: int = 8000
+    ui_host: str = "0.0.0.0"
+    ui_port: int = 7860
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
