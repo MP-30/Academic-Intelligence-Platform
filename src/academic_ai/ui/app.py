@@ -105,7 +105,7 @@ def search(query, user_id, workspace_id, top_k):
     return "\n".join(out)
 
 
-with gr.Blocks(title="Academic RAG", theme=gr.themes.Soft()) as demo:
+with gr.Blocks(title="Academic RAG") as demo:
     gr.Markdown(
         "# 📚 Academic RAG\n"
         f"Upload PDFs, search with page-cited results. "
@@ -157,6 +157,7 @@ if __name__ == "__main__":
     demo.launch(
         server_name=settings.ui_host,
         server_port=settings.ui_port,
-        show_error=False,   # prod-safe: no tracebacks leaked to users
+        show_error=False,
         share=False,
+        theme=gr.themes.Soft(),     # ← moved here
     )
