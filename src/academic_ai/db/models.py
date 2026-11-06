@@ -1,0 +1,75 @@
+import uuid
+from datetime import datetime
+from sqlalchemy import String, Integer, ForeignKey, Text, Index, Computed, DateTime, func
+from sqlalchemy.dialects.postgresql import UUID, JSONB, TSVECTOR
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from pgvector.sqlalchemy import Vector
+
+class Base(DeclarativeBase):
+    pass
+
+class Document(Base):
+    __tablename__ = "documents"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True, nullable=False)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True, nullable=False)
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    doc_type: Mapped[str] = mapped_column(String(50), default="notes") # syllabus | notes | paper | policy
+    s3_key: Mapped[str] = mapped_column(Text, nullable=False)
+    processing_status: Mapped[str] = mapped_column(String(32), default="PENDING") # PENDING | PROCESSING | READY | FAILED | ARCHIVED
+    vector_store_location: Mapped[str] = mapped_column(String(32), default="PGVECTOR") # PGVECTOR | S3_VECTORS
+    page_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+class DocumentChunk(Base):
+    __tablename__ = "document_chunks"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    document_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True, nullable=False)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True, nullable=False)
+    chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    page_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    metadata_: Mapped[dict] = mapped_column("metadata", JSONB, default=dict)
+    embedding: Mapped[list[float]] = mapped_column(Vector(1024))
+    search_vector: Mapped[str] = mapped_column(
+        TSVECTOR,
+        Computed("to_tsvector('english', content)", persisted=True)
+    )
+
+    __table_args__ = (
+        Index("ix_doc_chunks_embedding_hnsw", "embedding", postgresql_using="hnsw", postgresql_with={"m": 16, "ef_construction": 64}, postgresql_ops={"embedding": "vector_cosine_ops"}),
+        Index("ix_doc_chunks_search_vector_gin", "search_vector", postgresql_using="gin"),
+    )
+
+class Conversation(Base):
+    __tablename__ = "conversations"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True, nullable=False)
+    workspace_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    title: Mapped[str] = mapped_column(String(255), default="New Study Session")
+    llm_context_state: Mapped[dict] = mapped_column(
+        JSONB,
+        default=lambda: {"rolling_summary": "", "pinned_doc_ids": [], "last_compacted_message_id": None}
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+class Message(Base):
+    __tablename__ = "messages"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), index=True, nullable=False)
+    role: Mapped[str] = mapped_column(String(20), nullable=False) # user | assistant | tool | system
+    content_blocks: Mapped[list] = mapped_column(JSONB, default=list)
+    citations: Mapped[list] = mapped_column(JSONB, default=list)
+    agent_metadata: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_messages_conv_created", "conversation_id", "created_at"),
+    )
