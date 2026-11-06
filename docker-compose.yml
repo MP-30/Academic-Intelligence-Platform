@@ -25,5 +25,36 @@ services:
       - SERVICES=s3
       - DEFAULT_REGION=ap-south-1
 
+  redis:
+    image: redis:7-alpine
+    container_name: academic_redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+      - --maxmemory-policy
+      - noeviction          # ← CRITICAL: never evict queue data
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Optional: browser UI at http://localhost:5540
+  redis-insight:
+    image: redis/redisinsight:latest
+    container_name: academic_redis_ui
+    ports:
+      - "5540:5540"
+    depends_on:
+      - redis
+
 volumes:
   pgdata:
+  redisdata:

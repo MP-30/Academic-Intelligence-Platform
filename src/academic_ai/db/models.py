@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import String, Integer, ForeignKey, Text, Index, Computed, DateTime, func
+from sqlalchemy import String, Integer, ForeignKey, Text, Index, Computed, DateTime, func, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID, JSONB, TSVECTOR
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from pgvector.sqlalchemy import Vector
@@ -42,6 +42,7 @@ class DocumentChunk(Base):
     __table_args__ = (
         Index("ix_doc_chunks_embedding_hnsw", "embedding", postgresql_using="hnsw", postgresql_with={"m": 16, "ef_construction": 64}, postgresql_ops={"embedding": "vector_cosine_ops"}),
         Index("ix_doc_chunks_search_vector_gin", "search_vector", postgresql_using="gin"),
+        UniqueConstraint("document_id", "chunk_index", name="uq_chunk_dedup"),
     )
 
 class Conversation(Base):
@@ -72,4 +73,23 @@ class Message(Base):
 
     __table_args__ = (
         Index("ix_messages_conv_created", "conversation_id", "created_at"),
+    )
+
+class IngestionJob(Base):
+    __tablename__ = "ingestion_jobs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(32), default="PENDING")
+    retry_count: Mapped[int] = mapped_column(Integer, default=0)
+    max_retries: Mapped[int] = mapped_column(Integer, default=5)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    stream_message_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_ingestion_jobs_status_created", "status", "created_at"),
     )
