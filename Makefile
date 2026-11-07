@@ -1,9 +1,17 @@
 .DEFAULT_GOAL := help
 SHELL := /bin/bash
 
+# this is old local setup
 # Load .env if present
-ifneq (,$(wildcard ./.env))
-    include .env
+#ifneq (,$(wildcard ./.env))
+#    include .env
+#    export
+#endif
+
+# Load env file — defaults to .env, override with ENV_FILE=.env.aws
+ENV_FILE ?= .env
+ifneq (,$(wildcard ./$(ENV_FILE)))
+    include $(ENV_FILE)
     export
 endif
 
@@ -11,11 +19,12 @@ endif
 help:  ## Show this help
 	@echo ""
 	@echo "  Academic RAG — available commands"
+	@echo "  Current env file: $(ENV_FILE)"
+	@echo "  Override: make dev ENV_FILE=.env.aws"
 	@echo ""
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 	@echo ""
-
 # ─────────────────────────────────────────────────────────────────────
 # Setup
 # ─────────────────────────────────────────────────────────────────────
