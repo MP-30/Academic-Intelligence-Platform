@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from academic_ai.auth.dependencies import get_current_user
 from academic_ai.api.schemas import AskRequest, AskResponse
+from academic_ai.auth.dependencies import get_current_user
 from academic_ai.db.session import get_db
 from academic_ai.retrieval.ask import ask
 

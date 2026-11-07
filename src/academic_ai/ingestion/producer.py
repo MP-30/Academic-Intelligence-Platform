@@ -1,7 +1,9 @@
 import json
 import logging
 import uuid
+
 from sqlalchemy import text
+
 from academic_ai.ingestion.queue import _sqs, get_queue_url
 
 log = logging.getLogger(__name__)

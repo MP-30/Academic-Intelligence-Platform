@@ -1,11 +1,12 @@
 import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from academic_ai.api.documents import router as documents_router
-from academic_ai.api.search import router as search_router
 from academic_ai.api.ask import router as ask_router
 from academic_ai.api.auth import router as auth_router
+from academic_ai.api.documents import router as documents_router
+from academic_ai.api.search import router as search_router
 from academic_ai.config import settings
 
 logging.basicConfig(

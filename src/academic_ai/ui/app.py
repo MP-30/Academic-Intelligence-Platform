@@ -1,6 +1,7 @@
 """Gradio UI — thin HTTP client. Requires Cognito login."""
 import gradio as gr
 import httpx
+
 from academic_ai.config import settings
 
 

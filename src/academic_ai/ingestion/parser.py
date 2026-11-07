@@ -1,7 +1,8 @@
 import io
 from dataclasses import dataclass
-from pypdf import PdfReader
+
 import tiktoken
+from pypdf import PdfReader
 
 _enc = tiktoken.get_encoding("cl100k_base")
 

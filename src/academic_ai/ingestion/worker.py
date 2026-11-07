@@ -1,12 +1,14 @@
 import json
 import logging
 import threading
+
 from sqlalchemy import text
+
 from academic_ai.config import settings
+from academic_ai.ingestion.embeddings import embed
+from academic_ai.ingestion.parser import parse_pdf
 from academic_ai.ingestion.queue import _sqs, get_queue_url
 from academic_ai.ingestion.s3_service import download_pdf
-from academic_ai.ingestion.parser import parse_pdf
-from academic_ai.ingestion.embeddings import embed
 
 log = logging.getLogger(__name__)
 

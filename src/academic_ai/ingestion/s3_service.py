@@ -1,4 +1,5 @@
 import boto3
+
 from academic_ai.config import settings
 
 

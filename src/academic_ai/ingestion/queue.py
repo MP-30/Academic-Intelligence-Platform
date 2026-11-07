@@ -1,5 +1,7 @@
 import logging
+
 import boto3
+
 from academic_ai.config import settings
 
 log = logging.getLogger(__name__)

@@ -5,7 +5,7 @@ from uuid import UUID
 
 import httpx
 from fastapi import Header, HTTPException
-from jose import jwt, JWTError
+from jose import JWTError, jwt
 
 from academic_ai.config import settings
 

@@ -1,8 +1,6 @@
 """Proves the retrieval layer enforces tenant isolation at the DB level."""
 import uuid
 
-from sqlalchemy import text
-
 from academic_ai.retrieval.hybrid_search import HYBRID_RRF_SQL
 
 

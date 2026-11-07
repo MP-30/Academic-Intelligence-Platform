@@ -1,4 +1,5 @@
 from fastapi import APIRouter
+
 from academic_ai.api.schemas import LoginRequest, RegisterRequest, TokenResponse
 from academic_ai.auth import cognito_client
 

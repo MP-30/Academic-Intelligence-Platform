@@ -90,16 +90,20 @@ ui:  ## Run Gradio UI (foreground)
 	uv run python -m academic_ai.ui.app
 
 .PHONY: dev
-dev:  ## Run API + worker + UI all at once (Ctrl+C to stop all)
-	@echo "🚀 Starting API (:$(API_PORT)) + Worker + UI (:$(UI_PORT))"
-	@echo "   Press Ctrl+C to stop all three."
-	@echo ""
+dev:  ## Run API + worker + UI (Ctrl+C stops all)
+	@echo "🚀 Starting API (:$(API_PORT)) + UI (:$(UI_PORT))"
+	@if [ "$(SKIP_WORKER)" = "1" ]; then \
+		echo "   ⏭️  Worker skipped (SKIP_WORKER=1) — ECS handles ingestion"; \
+	else \
+		echo "   ▶️  Worker included — local worker polls SQS"; \
+	fi
 	@trap 'kill 0' EXIT INT TERM; \
 		uv run uvicorn academic_ai.main:app --host $(API_HOST) --port $(API_PORT) --reload & \
-		uv run python -m academic_ai.ingestion & \
+		if [ "$(SKIP_WORKER)" != "1" ]; then \
+			uv run python -m academic_ai.ingestion & \
+		fi; \
 		uv run python -m academic_ai.ui.app & \
 		wait
-
 # ─────────────────────────────────────────────────────────────────────
 # Quality
 # ─────────────────────────────────────────────────────────────────────
@@ -159,3 +163,21 @@ reset-db:  ## ⚠️ DROP all data and re-run migrations
 	docker exec -it academic_pgvector psql -U $(POSTGRES_USER) -d $(POSTGRES_DB) -c "\
 		TRUNCATE document_chunks, ingestion_jobs, documents RESTART IDENTITY CASCADE;"
 	uv run alembic upgrade head
+
+AWS_ACCOUNT := 405101250590
+AWS_REGION  := us-east-1
+ECR_REPO    := $(AWS_ACCOUNT).dkr.ecr.$(AWS_REGION).amazonaws.com/academic-rag-worker
+
+.PHONY: ecr-login
+ecr-login:  ## Login to ECR
+	aws ecr get-login-password --profile terraform-ai --region $(AWS_REGION) | \
+	docker login --username AWS --password-stdin $(AWS_ACCOUNT).dkr.ecr.$(AWS_REGION).amazonaws.com
+
+.PHONY: build-image
+build-image:  ## Build worker image
+	docker build --platform linux/amd64 -t academic-rag-worker:latest .
+
+.PHONY: push-image
+push-image: ecr-login build-image  ## Push worker image to ECR
+	docker tag academic-rag-worker:latest $(ECR_REPO):latest
+	docker push $(ECR_REPO):latest

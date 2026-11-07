@@ -46,3 +46,18 @@ dev = [
     "pytest-asyncio>=1.4.1.post1",
     "ruff>=0.17.4",
 ]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes — real bugs
+    "I",   # import sorting
+]
+ignore = [
+    "E501",  # line length — not worth fighting
+    "B008",  # FastAPI Depends/File/Form in defaults — framework pattern, not a bug
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]
+"scripts/*" = ["E501"]
