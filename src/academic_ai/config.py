@@ -15,7 +15,7 @@ class Settings(BaseSettings):
         default="us-east-1",
         validation_alias=AliasChoices("AWS_REGION", "AWS_DEFAULT_REGION"),
     )
-    aws_profile: str | None = "bedrock"
+    aws_profile: str | None = None
     s3_bucket: str = "academic-docs-local"
     s3_endpoint_url: str | None = "http://localhost:4566"
 
@@ -55,6 +55,13 @@ class Settings(BaseSettings):
     ui_host: str = "0.0.0.0"
     ui_port: int = 7860
 
+    cognito_user_pool_id: str = ""
+    cognito_client_id: str = ""
+    cognito_region: str = "us-east-1"
+
+    # --- CORS ---
+    cors_allowed_origin: str = "http://localhost:7860"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -64,3 +71,5 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+

@@ -1,16 +1,30 @@
-"""Gradio UI for Academic RAG. Thin HTTP client over the FastAPI backend."""
+"""Gradio UI — thin HTTP client. Requires Cognito login."""
 import gradio as gr
 import httpx
-
 from academic_ai.config import settings
 
 
-def upload_pdf(file_path, user_id, workspace_id):
-    if not file_path:
-        return "❌ No file selected", ""
-    if not user_id or not workspace_id:
-        return "❌ user_id and workspace_id are required", ""
+def login(email, password):
+    if not email or not password:
+        return "⚠️ Email and password required", ""
+    try:
+        r = httpx.post(
+            f"{settings.api_base_url}/auth/login",
+            json={"email": email, "password": password},
+            timeout=30,
+        )
+    except httpx.RequestError as e:
+        return f"❌ Network: {e}", ""
+    if r.status_code != 200:
+        return f"❌ {r.json().get('detail', 'Login failed')}", ""
+    return f"✅ Logged in as {email}", r.json()["id_token"]
 
+
+def upload_pdf(file_path, token, workspace_id):
+    if not token:
+        return "❌ Log in first", ""
+    if not file_path or not workspace_id:
+        return "❌ File and workspace_id required", ""
     try:
         with open(file_path, "rb") as f:
             files = {"file": (file_path.split("/")[-1], f, "application/pdf")}
@@ -18,226 +32,141 @@ def upload_pdf(file_path, user_id, workspace_id):
                 f"{settings.api_base_url}/documents",
                 files=files,
                 data={"workspace_id": workspace_id},
-                headers={"Authorization": f"Bearer {user_id}"},
+                headers={"Authorization": f"Bearer {token}"},
                 timeout=120,
             )
     except httpx.RequestError as e:
-        return f"❌ Cannot reach API at `{settings.api_base_url}`: {e}", ""
-
+        return f"❌ Network error: {e}", ""
     if r.status_code != 202:
         return f"❌ Upload failed ({r.status_code}): {r.text}", ""
-
     d = r.json()
     return (
-        f"✅ Uploaded\n\n"
-        f"- document_id: `{d['document_id']}`\n"
-        f"- job_id: `{d['job_id']}`\n\n"
-        f"Click **Check Status** to poll.",
+        f"✅ Uploaded\n\n- document_id: `{d['document_id']}`\n- job_id: `{d['job_id']}`",
         d["document_id"],
     )
 
 
-def poll_status(doc_id, user_id):
-    if not doc_id:
-        return "⚠️ Upload a PDF first"
-    if not user_id:
-        return "⚠️ user_id required"
-
+def poll_status(doc_id, token):
+    if not token or not doc_id:
+        return "⚠️ Log in and upload a PDF first"
     try:
         r = httpx.get(
             f"{settings.api_base_url}/documents/{doc_id}",
-            headers={"Authorization": f"Bearer {user_id}"},
+            headers={"Authorization": f"Bearer {token}"},
             timeout=10,
         )
     except httpx.RequestError as e:
         return f"❌ Network error: {e}"
-
     if r.status_code != 200:
         return f"❌ Status check failed ({r.status_code}): {r.text}"
-
     d = r.json()
     icon = {"READY": "✅", "PENDING": "⏳", "PROCESSING": "🔄", "FAILED": "❌"}.get(
         d["processing_status"], "❓"
     )
-    return (
-        f"{icon} **Status:** {d['processing_status']}\n\n"
-        f"- Pages: {d['page_count']}\n"
-        f"- Job: {d.get('job_status') or '—'}\n"
-        f"- Error: {d.get('job_error') or '—'}"
-    )
+    return f"{icon} **{d['processing_status']}** — {d['page_count']} pages"
 
 
-def search(query, user_id, workspace_id, top_k):
-    if not query:
-        return "⚠️ Enter a query"
-    if not user_id:
-        return "⚠️ user_id required"
-
-    body = {
-        "query": query,
-        "workspace_id": workspace_id or None,
-        "top_k": int(top_k),
-    }
+def search(query, token, workspace_id, top_k):
+    if not token or not query:
+        return "⚠️ Log in and enter a query"
+    body = {"query": query, "workspace_id": workspace_id or None, "top_k": int(top_k)}
     try:
         r = httpx.post(
             f"{settings.api_base_url}/search",
             json=body,
-            headers={"Authorization": f"Bearer {user_id}"},
+            headers={"Authorization": f"Bearer {token}"},
             timeout=30,
         )
     except httpx.RequestError as e:
         return f"❌ Network error: {e}"
-
     if r.status_code != 200:
         return f"❌ Search failed ({r.status_code}): {r.text}"
-
     d = r.json()
     if d["count"] == 0:
-        return f"**0 hits** for _{d['query']}_ — try a different query or upload a PDF first."
-
+        return f"**0 hits** for _{d['query']}_"
     out = [f"**{d['count']} hits** for _{d['query']}_\n"]
     for i, h in enumerate(d["hits"], 1):
-        out.append(f"---\n### [{i}] Page {h['page_number']} · score `{h['rrf_score']:.5f}`")
+        out.append(f"---\n### [{i}] Page {h['page_number']} · `{h['rrf_score']:.5f}`")
         preview = h["content"][:600].strip()
-        if len(h["content"]) > 600:
-            preview += "…"
         out.append(f"\n> {preview}\n")
     return "\n".join(out)
 
-def chat_ask(question, history, user_id, workspace_id):
-    """
-    Called when user sends a chat message.
-    Returns: (updated_history, empty_textbox)
-    """
-    if not question or not question.strip():
-        return history, ""
 
-    if not user_id:
-        history = history + [
-            {"role": "user", "content": question},
-            {"role": "assistant", "content": "⚠️ User ID required (top of page)"},
-        ]
+def chat_ask(question, history, token, workspace_id):
+    if not token or not question or not question.strip():
         return history, ""
-
-    body = {
-        "question":     question,
-        "workspace_id": workspace_id or None,
-    }
+    body = {"question": question, "workspace_id": workspace_id or None}
     try:
         r = httpx.post(
             f"{settings.api_base_url}/ask",
             json=body,
-            headers={"Authorization": f"Bearer {user_id}"},
+            headers={"Authorization": f"Bearer {token}"},
             timeout=60,
         )
     except httpx.RequestError as e:
-        history = history + [
+        return history + [
             {"role": "user", "content": question},
-            {"role": "assistant", "content": f"❌ Network error: {e}"},
-        ]
-        return history, ""
-
+            {"role": "assistant", "content": f"❌ {e}"},
+        ], ""
     if r.status_code != 200:
-        history = history + [
+        return history + [
             {"role": "user", "content": question},
-            {"role": "assistant", "content": f"❌ Failed ({r.status_code}): {r.text[:200]}"},
-        ]
-        return history, ""
-
+            {"role": "assistant", "content": f"❌ {r.status_code}"},
+        ], ""
     d = r.json()
     answer = d["answer"]
-
-    # Append citation footer
     if d["citations"]:
         pages = sorted({c["page_number"] for c in d["citations"]})
         answer += f"\n\n*Sources: pages {', '.join(map(str, pages))}*"
-
-    history = history + [
+    return history + [
         {"role": "user", "content": question},
         {"role": "assistant", "content": answer},
-    ]
-    return history, ""
+    ], ""
 
-
-def clear_chat():
-    return [], ""
 
 with gr.Blocks(title="Academic RAG") as demo:
-    gr.Markdown(
-        "# 📚 Academic RAG\n"
-        f"Upload PDFs, search with page-cited results. "
-        f"Backend: `{settings.api_base_url}`"
-    )
+    gr.Markdown("# 📚 Academic RAG")
+    gr.Markdown(f"Backend: `{settings.api_base_url}`")
 
     with gr.Row():
-        user_id = gr.Textbox(
-            label="User ID (UUID)",
-            placeholder="paste your user uuid",
-            scale=2,
-        )
-        workspace_id = gr.Textbox(
-            label="Workspace ID (UUID)",
-            placeholder="paste your workspace uuid",
-            scale=2,
-        )
+        email = gr.Textbox(label="Email", scale=2)
+        password = gr.Textbox(label="Password", type="password", scale=2)
+        login_btn = gr.Button("Login", variant="primary", scale=1)
+    login_status = gr.Markdown()
+    token_state = gr.State("")
+
+    workspace_id = gr.Textbox(
+        label="Workspace ID (UUID)", placeholder="paste your workspace uuid"
+    )
 
     with gr.Tab("📤 Upload & Ingest"):
-        with gr.Row():
-            file = gr.File(label="PDF", file_types=[".pdf"], scale=3)
+        file = gr.File(label="PDF", file_types=[".pdf"])
         upload_btn = gr.Button("Upload & Ingest", variant="primary")
         upload_out = gr.Markdown()
         doc_id_state = gr.State("")
-        with gr.Row():
-            poll_btn = gr.Button("🔄 Check Status")
+        poll_btn = gr.Button("🔄 Check Status")
         poll_out = gr.Markdown()
 
     with gr.Tab("🔍 Search"):
-        query = gr.Textbox(
-            label="Query",
-            placeholder="e.g. elective subjects, assessment scheme, physics...",
-            lines=2,
-        )
+        query = gr.Textbox(label="Query", lines=2)
         top_k = gr.Slider(1, 10, value=5, step=1, label="Top K")
         search_btn = gr.Button("Search", variant="primary")
         results = gr.Markdown()
 
-    upload_btn.click(
-        upload_pdf, [file, user_id, workspace_id], [upload_out, doc_id_state]
-    )
-    poll_btn.click(poll_status, [doc_id_state, user_id], poll_out)
-    search_btn.click(
-        search, [query, user_id, workspace_id, top_k], results
-    )
-
     with gr.Tab("💬 Chat"):
-        chatbot = gr.Chatbot(
-            label="Academic Assistant",
-            height=500,
-            value=[],
-        )
+        chatbot = gr.Chatbot(label="Assistant", height=500, value=[])
+        chat_input = gr.Textbox(label="Ask", lines=2)
         with gr.Row():
-            chat_input = gr.Textbox(
-                label="Ask about your documents",
-                placeholder="e.g. when are electives offered? what's the assessment scheme?",
-                lines=2,
-                scale=4,
-            )
-            with gr.Column(scale=1):
-                chat_send = gr.Button("Send", variant="primary")
-                chat_clear = gr.Button("Clear")
-        chat_status = gr.Markdown()
+            chat_send = gr.Button("Send", variant="primary")
+            chat_clear = gr.Button("Clear")
 
-    chat_send.click(
-        chat_ask,
-        inputs=[chat_input, chatbot, user_id, workspace_id],
-        outputs=[chatbot, chat_input],
-    )
-    chat_input.submit(
-        chat_ask,
-        inputs=[chat_input, chatbot, user_id, workspace_id],
-        outputs=[chatbot, chat_input],
-    )
-    chat_clear.click(clear_chat, outputs=[chatbot, chat_input])
+    login_btn.click(login, [email, password], [login_status, token_state])
+    upload_btn.click(upload_pdf, [file, token_state, workspace_id], [upload_out, doc_id_state])
+    poll_btn.click(poll_status, [doc_id_state, token_state], poll_out)
+    search_btn.click(search, [query, token_state, workspace_id, top_k], results)
+    chat_send.click(chat_ask, [chat_input, chatbot, token_state, workspace_id], [chatbot, chat_input])
+    chat_input.submit(chat_ask, [chat_input, chatbot, token_state, workspace_id], [chatbot, chat_input])
+    chat_clear.click(lambda: ([], ""), outputs=[chatbot, chat_input])
 
 
 if __name__ == "__main__":
@@ -246,5 +175,4 @@ if __name__ == "__main__":
         server_port=settings.ui_port,
         show_error=False,
         share=False,
-        theme=gr.themes.Soft(),
     )

@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from academic_ai.api.dependencies import get_current_user
+from academic_ai.auth.dependencies import get_current_user
 from academic_ai.api.schemas import DocumentStatusResponse, DocumentUploadResponse
 from academic_ai.db.models import Document
 from academic_ai.db.session import get_db

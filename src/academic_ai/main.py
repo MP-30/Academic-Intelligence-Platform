@@ -5,6 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from academic_ai.api.documents import router as documents_router
 from academic_ai.api.search import router as search_router
 from academic_ai.api.ask import router as ask_router
+from academic_ai.api.auth import router as auth_router
+from academic_ai.config import settings
 
 logging.basicConfig(
     level=logging.INFO,
@@ -14,18 +16,19 @@ logging.basicConfig(
 app = FastAPI(
     title="Academic Intelligence Platform",
     description="RAG pipeline over academic PDFs — hybrid retrieval with page-cited results.",
-    version="0.1.0",
+    version="0.3.5",
 )
 
 # CORS — useful later for browser frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=[settings.cors_allowed_origin],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
+app.include_router(auth_router)
 app.include_router(documents_router)
 app.include_router(search_router)
 app.include_router(ask_router)

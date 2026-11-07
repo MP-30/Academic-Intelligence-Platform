@@ -51,3 +51,20 @@ class AskResponse(BaseModel):
     answer: str
     citations: list[AskCitation]
     chunks_used: int
+
+class RegisterRequest(BaseModel):
+    email: str = Field(..., min_length=5, max_length=254)
+    password: str = Field(..., min_length=8, max_length=128)
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class TokenResponse(BaseModel):
+    id_token: str
+    access_token: str
+    refresh_token: str | None = None
+    expires_in: int
+    token_type: str
