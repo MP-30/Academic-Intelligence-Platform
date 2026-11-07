@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from academic_ai.api.documents import router as documents_router
 from academic_ai.api.search import router as search_router
+from academic_ai.api.ask import router as ask_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -27,6 +28,7 @@ app.add_middleware(
 
 app.include_router(documents_router)
 app.include_router(search_router)
+app.include_router(ask_router)
 
 
 @app.get("/health")

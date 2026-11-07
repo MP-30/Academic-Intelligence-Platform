@@ -33,3 +33,21 @@ class DocumentStatusResponse(BaseModel):
     page_count: int
     job_status: str | None = None
     job_error: str | None = None
+
+class AskRequest(BaseModel):
+    question: str = Field(..., min_length=1, max_length=2000)
+    workspace_id: UUID | None = None
+    top_k: int | None = Field(None, ge=1, le=10)
+
+
+class AskCitation(BaseModel):
+    chunk_id: UUID
+    document_id: UUID
+    page_number: int
+    content: str
+
+
+class AskResponse(BaseModel):
+    answer: str
+    citations: list[AskCitation]
+    chunks_used: int

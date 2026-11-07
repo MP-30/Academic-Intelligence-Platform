@@ -104,6 +104,63 @@ def search(query, user_id, workspace_id, top_k):
         out.append(f"\n> {preview}\n")
     return "\n".join(out)
 
+def chat_ask(question, history, user_id, workspace_id):
+    """
+    Called when user sends a chat message.
+    Returns: (updated_history, empty_textbox)
+    """
+    if not question or not question.strip():
+        return history, ""
+
+    if not user_id:
+        history = history + [
+            {"role": "user", "content": question},
+            {"role": "assistant", "content": "⚠️ User ID required (top of page)"},
+        ]
+        return history, ""
+
+    body = {
+        "question":     question,
+        "workspace_id": workspace_id or None,
+    }
+    try:
+        r = httpx.post(
+            f"{settings.api_base_url}/ask",
+            json=body,
+            headers={"Authorization": f"Bearer {user_id}"},
+            timeout=60,
+        )
+    except httpx.RequestError as e:
+        history = history + [
+            {"role": "user", "content": question},
+            {"role": "assistant", "content": f"❌ Network error: {e}"},
+        ]
+        return history, ""
+
+    if r.status_code != 200:
+        history = history + [
+            {"role": "user", "content": question},
+            {"role": "assistant", "content": f"❌ Failed ({r.status_code}): {r.text[:200]}"},
+        ]
+        return history, ""
+
+    d = r.json()
+    answer = d["answer"]
+
+    # Append citation footer
+    if d["citations"]:
+        pages = sorted({c["page_number"] for c in d["citations"]})
+        answer += f"\n\n*Sources: pages {', '.join(map(str, pages))}*"
+
+    history = history + [
+        {"role": "user", "content": question},
+        {"role": "assistant", "content": answer},
+    ]
+    return history, ""
+
+
+def clear_chat():
+    return [], ""
 
 with gr.Blocks(title="Academic RAG") as demo:
     gr.Markdown(
@@ -152,6 +209,36 @@ with gr.Blocks(title="Academic RAG") as demo:
         search, [query, user_id, workspace_id, top_k], results
     )
 
+    with gr.Tab("💬 Chat"):
+        chatbot = gr.Chatbot(
+            label="Academic Assistant",
+            height=500,
+            value=[],
+        )
+        with gr.Row():
+            chat_input = gr.Textbox(
+                label="Ask about your documents",
+                placeholder="e.g. when are electives offered? what's the assessment scheme?",
+                lines=2,
+                scale=4,
+            )
+            with gr.Column(scale=1):
+                chat_send = gr.Button("Send", variant="primary")
+                chat_clear = gr.Button("Clear")
+        chat_status = gr.Markdown()
+
+    chat_send.click(
+        chat_ask,
+        inputs=[chat_input, chatbot, user_id, workspace_id],
+        outputs=[chatbot, chat_input],
+    )
+    chat_input.submit(
+        chat_ask,
+        inputs=[chat_input, chatbot, user_id, workspace_id],
+        outputs=[chatbot, chat_input],
+    )
+    chat_clear.click(clear_chat, outputs=[chatbot, chat_input])
+
 
 if __name__ == "__main__":
     demo.launch(
@@ -159,5 +246,5 @@ if __name__ == "__main__":
         server_port=settings.ui_port,
         show_error=False,
         share=False,
-        theme=gr.themes.Soft(),     # ← moved here
+        theme=gr.themes.Soft(),
     )

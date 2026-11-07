@@ -30,6 +30,12 @@ class Settings(BaseSettings):
     embedding_model_id: str = "amazon.titan-embed-text-v2:0"
     embedding_dimensions: int = 1024
 
+    # --- LLM (Claude via Bedrock) ---
+    llm_model_id: str = "mistral.mistral-large-3-675b-instruct"
+    llm_max_tokens: int = 1024
+    llm_temperature: float = 0.1
+    ask_top_k: int = 5
+
     # --- OpenAI fallback ---
     openai_api_key: str | None = None
     openai_model: str | None = None
