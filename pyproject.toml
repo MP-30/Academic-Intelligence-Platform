@@ -35,6 +35,7 @@ dependencies = [
     "strands-agents>=1.64.0",
     "strands-agents-tools>=0.9.0",
     "structlog>=26.1.0",
+    "tavily-python>=0.8.5",
     "tiktoken>=0.14.0",
     "uvicorn[standard]>=0.54.0",
 ]

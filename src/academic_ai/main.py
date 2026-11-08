@@ -3,6 +3,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from academic_ai.api.agent import router as agent_router
 from academic_ai.api.ask import router as ask_router
 from academic_ai.api.auth import router as auth_router
 from academic_ai.api.documents import router as documents_router
@@ -33,6 +34,7 @@ app.include_router(auth_router)
 app.include_router(documents_router)
 app.include_router(search_router)
 app.include_router(ask_router)
+app.include_router(agent_router)
 
 
 @app.get("/health")

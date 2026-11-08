@@ -69,3 +69,29 @@ class TokenResponse(BaseModel):
     refresh_token: str | None = None
     expires_in: int
     token_type: str
+
+
+class AgentRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=4000)
+    conversation_id: UUID | None = None
+    workspace_id: UUID | None = None
+
+
+class AgentToolCall(BaseModel):
+    tool: str
+    args: dict
+
+
+class AgentCitation(BaseModel):
+    source: str  # "document" | "web"
+    page_number: int | None = None
+    document_id: str | None = None
+    url: str | None = None
+    title: str | None = None
+
+
+class AgentResponse(BaseModel):
+    conversation_id: UUID
+    response: str
+    tool_calls: list[AgentToolCall]
+    citations: list[AgentCitation]

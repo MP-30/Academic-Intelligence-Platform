@@ -62,6 +62,13 @@ class Settings(BaseSettings):
     # --- CORS ---
     cors_allowed_origin: str = "http://localhost:7860"
 
+    # --- Agent (v0.4) ---
+    strands_model_id: str = "mistral.mistral-large-3-675b-instruct"
+    agent_max_iterations: int = 8
+    agent_temperature: float = 0.1
+    tavily_api_key: str = ""
+    agent_top_k: int = 5
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
