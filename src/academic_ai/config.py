@@ -69,6 +69,12 @@ class Settings(BaseSettings):
     tavily_api_key: str = ""
     agent_top_k: int = 5
 
+    # --- MCP servers (v0.5) ---
+    doc_mcp_url: str = "http://localhost:8001/mcp"
+    web_mcp_url: str = "http://localhost:8002/mcp"
+    doc_mcp_port: int = 8001
+    web_mcp_port: int = 8002
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
