@@ -32,6 +32,16 @@ with psycopg.connect(url, autocommit=True, connect_timeout=10) as conn:
     exec uv run --frozen --no-dev python -m academic_ai.ui.app
     ;;
 
+  mcp-doc)
+    echo "==> [mcp-doc] Starting doc-mcp on 0.0.0.0:${DOC_MCP_PORT:-8001}..."
+    exec uv run --frozen --no-dev python -m academic_ai.mcp_servers.doc_server
+    ;;
+
+  mcp-web)
+    echo "==> [mcp-web] Starting web-mcp on 0.0.0.0:${WEB_MCP_PORT:-8002}..."
+    exec uv run --frozen --no-dev python -m academic_ai.mcp_servers.web_server
+    ;;
+
   *)
     echo "Unknown mode: $MODE"; exit 1 ;;
 esac
