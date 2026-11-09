@@ -152,3 +152,5 @@ cython_debug/
 .env.aws
 .env.test
 .env.*
+!.env.example
+!.env.aws.example
