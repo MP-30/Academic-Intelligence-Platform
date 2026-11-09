@@ -75,6 +75,8 @@ class Settings(BaseSettings):
     doc_mcp_port: int = 8001
     web_mcp_port: int = 8002
 
+    use_mcp_tools: bool = True
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

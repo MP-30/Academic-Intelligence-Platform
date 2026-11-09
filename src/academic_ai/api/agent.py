@@ -11,7 +11,7 @@ from academic_ai.agents.context_manager import (
     load_history,
     save_turn,
 )
-from academic_ai.agents.orchestrator import create_agent
+from academic_ai.agents.orchestrator import create_agent, create_agent_with_mcp
 from academic_ai.agents.tools.document_tools import (
     current_user_id_ctx,
     current_workspace_id_ctx,
@@ -23,6 +23,7 @@ from academic_ai.api.schemas import (
     AgentToolCall,
 )
 from academic_ai.auth.dependencies import get_current_user
+from academic_ai.config import settings
 from academic_ai.db.session import get_db
 
 log = logging.getLogger(__name__)
@@ -33,6 +34,12 @@ WEB_CITE_RE = re.compile(r"\[Web:\s*([^\]\(]+)\(([^\)]+)\)\]")
 MD_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^\)]+)\)")
 # Fallback: LLM emits "Web: title (url)" without brackets (Mistral does this)
 BARE_WEB_RE = re.compile(r"Web:\s*(.+?)\s*\((https?://[^\)]+)\)")
+# Fallback 3: bare domain URLs like "arxiv.org/html/2504" (Mistral drops https://)
+_COMMON_TLDS = r"(?:com|org|net|io|ai|dev|edu|gov|co|tech|app|info|xyz|so|sh|me)"
+BARE_DOMAIN_RE = re.compile(
+    rf"\b((?:[a-z0-9][a-z0-9\-]*\.)+{_COMMON_TLDS}(?:/[a-zA-Z0-9\-._~:/?#\[\]@!$&'()*+,;=%]*)?)",
+    re.IGNORECASE,
+)
 
 
 def _extract_citations(answer: str, history_new: list[dict]) -> list[AgentCitation]:
@@ -71,6 +78,19 @@ def _extract_citations(answer: str, history_new: list[dict]) -> list[AgentCitati
         seen.add(key)
         cleaned = title.strip().rstrip(".,;:")
         citations.append(AgentCitation(source="web", url=url.strip(), title=cleaned))
+
+    # Fallback 3: bare domain URLs — Mistral drops https:// scheme entirely
+    for url in BARE_DOMAIN_RE.findall(answer):
+        url_clean = url.strip().rstrip(".,;:!?)\]")
+        if not url_clean.startswith(("http://", "https://")):
+            url_clean = "https://" + url_clean
+        key = ("web", url_clean)
+        if key in seen:
+            continue
+        seen.add(key)
+        # Extract domain as fallback title (no context available for bare URLs)
+        title = url_clean.split("//")[-1].split("/")[0]
+        citations.append(AgentCitation(source="web", url=url_clean, title=title))
 
     return citations
 
@@ -111,12 +131,30 @@ async def run_agent(
 
     history = await load_history(db, conv_id)
 
-    # Bind user context for tools (contextvars)
+    # Bind user context for in-process tools (v0.4 fallback path)
     tok_user = current_user_id_ctx.set(user_id)
     tok_ws = current_workspace_id_ctx.set(req.workspace_id)
+    agent_messages_snapshot: list = []
+
     try:
-        agent = create_agent(history=history)
-        result = agent(req.message)
+        if settings.use_mcp_tools:
+            # v0.5 default: MCP tools over HTTP
+            async with create_agent_with_mcp(
+                user_id=user_id,
+                workspace_id=req.workspace_id,
+                history=history,
+            ) as agent:
+                try:
+                    result = await agent.invoke_async(req.message)
+                except AttributeError:
+                    # Fallback if Strands version lacks invoke_async
+                    result = agent(req.message)
+                agent_messages_snapshot = list(agent.messages) if hasattr(agent, "messages") else []
+        else:
+            # v0.4 fallback: in-process tools
+            agent = create_agent(history=history)
+            result = agent(req.message)
+            agent_messages_snapshot = list(agent.messages) if hasattr(agent, "messages") else []
     except Exception as e:
         log.exception("agent invocation failed")
         raise HTTPException(500, f"Agent failed: {e.__class__.__name__}")
@@ -130,11 +168,9 @@ async def run_agent(
     except Exception:
         answer_text = str(result)
 
-    # Extract tool calls from the new messages produced this turn
-    all_messages = history + ([{"role": "user", "content": [{"text": req.message}]}])
-    new_messages = [m for m in agent.messages if m not in all_messages] if hasattr(agent, "messages") else []
-    tool_calls = _extract_tool_calls(new_messages)
-    citations = _extract_citations(answer_text, new_messages)
+    # Extract tool calls + citations
+    tool_calls = _extract_tool_calls(agent_messages_snapshot)
+    citations = _extract_citations(answer_text, agent_messages_snapshot)
 
     await save_turn(
         db,
