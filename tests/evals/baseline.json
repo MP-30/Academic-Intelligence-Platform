@@ -1,0 +1,116 @@
+{
+  "generated_at": "2026-11-09T23:13:38.891277+00:00",
+  "source_results": "tests/evals/results-20261110-043246.json",
+  "metrics": {
+    "faithfulness": 1.0,
+    "answer_relevancy": 0.857791083713655,
+    "context_precision": 0.89999999991,
+    "citation_accuracy": 0.875,
+    "count": 10
+  },
+  "per_question": {
+    "doc-01": {
+      "faithfulness": null,
+      "answer_relevancy": 0.8094051623072822,
+      "context_precision": 0.9999999999,
+      "expected_pages": [
+        3
+      ],
+      "cited_pages": [
+        3
+      ]
+    },
+    "doc-02": {
+      "faithfulness": null,
+      "answer_relevancy": 0.8336975962590149,
+      "context_precision": 0.9999999999,
+      "expected_pages": [
+        9
+      ],
+      "cited_pages": [
+        9,
+        8
+      ]
+    },
+    "doc-03": {
+      "faithfulness": null,
+      "answer_relevancy": 0.8001696820452677,
+      "context_precision": 0.9999999999,
+      "expected_pages": [
+        14
+      ],
+      "cited_pages": [
+        14
+      ]
+    },
+    "doc-04": {
+      "faithfulness": null,
+      "answer_relevancy": 0.8284394261384859,
+      "context_precision": 0.9999999999,
+      "expected_pages": [
+        17
+      ],
+      "cited_pages": [
+        17
+      ]
+    },
+    "doc-05": {
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.8705608874021596,
+      "context_precision": 0.9999999999,
+      "expected_pages": [
+        9
+      ],
+      "cited_pages": [
+        9
+      ]
+    },
+    "mixed-01": {
+      "faithfulness": null,
+      "answer_relevancy": 0.8566100830836612,
+      "context_precision": 0.9999999999,
+      "expected_pages": [
+        3,
+        9
+      ],
+      "cited_pages": [
+        10,
+        3
+      ]
+    },
+    "doc-06": {
+      "faithfulness": null,
+      "answer_relevancy": 0.8648117476989196,
+      "context_precision": 0.9999999999,
+      "expected_pages": [
+        14
+      ],
+      "cited_pages": []
+    },
+    "doc-07": {
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.8383881546126588,
+      "context_precision": 0.9999999999,
+      "expected_pages": [
+        15
+      ],
+      "cited_pages": [
+        15
+      ]
+    },
+    "web-01": {
+      "faithfulness": null,
+      "answer_relevancy": 0.8758280975891003,
+      "context_precision": 0.9999999999,
+      "expected_pages": [],
+      "cited_pages": []
+    },
+    "refusal-01": {
+      "faithfulness": 1.0,
+      "answer_relevancy": 0.9999999999999994,
+      "context_precision": 0.0,
+      "expected_pages": [],
+      "cited_pages": []
+    }
+  }
+}
