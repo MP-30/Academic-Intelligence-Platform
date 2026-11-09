@@ -1,0 +1,122 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel superseded runs — saves CI minutes
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Lint + Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg18
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Set up Python 3.14
+        run: uv python install 3.14
+
+      - name: Install dependencies
+        run: |
+          uv sync --frozen
+          uv pip install -e .
+
+      - name: Lint with ruff
+        run: uv run ruff check .
+
+      - name: Import smoke test
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+          POSTGRES_PORT: "5432"
+          DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/test
+          AWS_REGION: us-east-1
+          AWS_DEFAULT_REGION: us-east-1
+          AWS_PROFILE: ""
+          COGNITO_USER_POOL_ID: dummy
+          COGNITO_CLIENT_ID: dummy
+          CORS_ALLOWED_ORIGIN: http://localhost:7860
+          USE_MCP_TOOLS: "false"
+        run: |
+          uv run python -c "from academic_ai.main import app; print('✅ main imports')"
+          uv run python -c "from academic_ai.ingestion.worker import run_worker; print('✅ worker imports')"
+          uv run python -c "from academic_ai.ui.app import demo; print('✅ ui imports')"
+          uv run python -c "from academic_ai.mcp_servers.doc_server import mcp; print('✅ doc-mcp imports')"
+          uv run python -c "from academic_ai.mcp_servers.web_server import mcp; print('✅ web-mcp imports')"
+
+      - name: Run alembic migrations
+        env:
+          DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/test
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+          POSTGRES_PORT: "5432"
+        run: uv run alembic upgrade head
+
+      - name: Run tests
+        env:
+          DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/test
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+          POSTGRES_PORT: "5432"
+          AWS_REGION: us-east-1
+          AWS_DEFAULT_REGION: us-east-1
+          AWS_PROFILE: ""
+          COGNITO_USER_POOL_ID: dummy
+          COGNITO_CLIENT_ID: dummy
+          CORS_ALLOWED_ORIGIN: http://localhost:7860
+        run: uv run pytest tests/ -v --tb=short
+
+  docker-build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (no push — verifies Dockerfile works)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          platforms: linux/amd64
+          tags: academic-rag-worker:ci-test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
