@@ -181,3 +181,13 @@ build-image:  ## Build worker image
 push-image: ecr-login build-image  ## Push worker image to ECR
 	docker tag academic-rag-worker:latest $(ECR_REPO):latest
 	docker push $(ECR_REPO):latest
+.PHONY: evals
+evals:  ## Run full eval suite (runner + scorer + compare)
+	uv run python -m tests.evals.runner
+	uv run python -m tests.evals.ragas_scorer
+	uv run python -m tests.evals.compare
+
+.PHONY: eval-baseline
+eval-baseline:  ## Update reference baseline to current scores
+	cp tests/evals/baseline.json tests/evals/baseline.reference.json
+	@echo "✅ Reference baseline updated"

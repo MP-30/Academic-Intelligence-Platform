@@ -1,0 +1,79 @@
+name: Evals
+
+on:
+  schedule:
+    - cron: "0 3 * * *"      # nightly 03:00 UTC
+  workflow_dispatch:          # manual
+
+concurrency:
+  group: evals
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  evals:
+    name: RAGAS Eval Suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      AWS_REGION: us-east-1
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_PROFILE: ""
+      EVAL_API_BASE: https://api.adityalive.tech
+      DATABASE_URL: postgresql+asyncpg://unused:unused@localhost:5432/unused
+      POSTGRES_USER: unused
+      POSTGRES_PASSWORD: unused
+      POSTGRES_DB: unused
+      POSTGRES_PORT: "5432"
+      S3_ENDPOINT_URL: ""
+      SQS_ENDPOINT_URL: ""
+      S3_BUCKET: unused
+      COGNITO_USER_POOL_ID: unused
+      COGNITO_CLIENT_ID: unused
+      CORS_ALLOWED_ORIGIN: http://localhost:7860
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Set up Python 3.14
+        run: uv python install 3.14
+
+      - name: Install dependencies
+        run: |
+          uv sync --frozen
+          uv pip install -e .
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+          role-session-name: gha-evals-${{ github.run_id }}
+
+      - name: Run eval runner (hits production API)
+        env:
+          EVAL_USER_EMAIL: ${{ secrets.EVAL_USER_EMAIL }}
+          EVAL_USER_PASSWORD: ${{ secrets.EVAL_USER_PASSWORD }}
+        run: uv run python -m tests.evals.runner
+
+      - name: Score with RAGAS
+        run: uv run python -m tests.evals.ragas_scorer
+
+      - name: Compare vs reference baseline
+        run: uv run python -m tests.evals.compare
+
+      - name: Upload baseline artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: baseline-${{ github.run_id }}
+          path: tests/evals/baseline.json
+          retention-days: 30
