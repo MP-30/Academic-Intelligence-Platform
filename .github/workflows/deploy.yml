@@ -1,0 +1,107 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        description: "Which service to redeploy"
+        required: true
+        default: "all"
+        type: choice
+        options:
+          - all
+          - api
+          - worker
+          - ui
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Build + Push + Redeploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      AWS_REGION: us-east-1
+      ECR_REPO: 405101250590.dkr.ecr.us-east-1.amazonaws.com/academic-rag-worker
+      ECS_CLUSTER: academic-rag
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: gha-${{ github.run_id }}
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64
+          tags: ${{ env.ECR_REPO }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Determine target services
+        id: services
+        run: |
+          if [ "${{ inputs.service }}" = "all" ]; then
+            echo "list=academic-rag-api academic-rag-worker academic-rag-ui" >> $GITHUB_OUTPUT
+          else
+            echo "list=academic-rag-${{ inputs.service }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Force ECS redeploy
+        run: |
+          for svc in ${{ steps.services.outputs.list }}; do
+            echo "=== Redeploying $svc ==="
+            aws ecs update-service \
+              --cluster ${{ env.ECS_CLUSTER }} \
+              --service "$svc" \
+              --force-new-deployment \
+              --query 'service.deployments[0].[status,desiredCount]' \
+              --output text
+          done
+
+      - name: Wait for services stable
+        timeout-minutes: 10
+        run: |
+          aws ecs wait services-stable \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services ${{ steps.services.outputs.list }}
+          echo "✅ All services stable"
+
+      - name: Verify health
+        run: |
+          ALB_IP=$(dig +short api.adityalive.tech | grep -v elb | head -1)
+          echo "Testing health at $ALB_IP..."
+          for i in {1..10}; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              --resolve api.adityalive.tech:443:$ALB_IP \
+              https://api.adityalive.tech/health)
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ Health OK"
+              exit 0
+            fi
+            echo "Attempt $i: HTTP $STATUS"
+            sleep 5
+          done
+          echo "❌ Health check failed after 10 attempts"
+          exit 1
