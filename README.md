@@ -1,4 +1,4 @@
-```markdown
+
 # Academic Intelligence Platform
 
 [![CI](https://github.com/MP-30/Academic-Intelligence-Platform/actions/workflows/ci.yml/badge.svg)](https://github.com/MP-30/Academic-Intelligence-Platform/actions/workflows/ci.yml)
