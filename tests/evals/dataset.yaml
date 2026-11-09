@@ -1,0 +1,131 @@
+# v0.7 Eval Dataset — 10 questions across 5 categories
+#
+# Categories:
+#   doc              — answer from PDF (tests retrieval + faithfulness)
+#   mixed_retrieval  — requires synthesizing 2+ pages
+#   web              — requires web search (Tavily)
+#   refusal          — off-topic; should refuse, not hallucinate
+#
+# Fields:
+#   id              — stable identifier (don't rename after baseline)
+#   question        — exact question sent to /agent
+#   ground_truth    — expected answer (RAGAS faithfulness judge uses this)
+#   expected_pages  — which PDF pages should be cited
+#   category        — one of the 4 above
+#   workspace_id    — workspace to query (eval user's workspace)
+
+# ── Document questions (5) ─────────────────────────────────
+- id: doc-01
+  question: "What elective areas are offered?"
+  ground_truth: |
+    Languages, Humanities and Social Sciences, Sciences, Mathematics,
+    Business and Commerce-based electives, Visual/Performing/Creative Arts,
+    Skill Electives, Health and Physical Education.
+  expected_pages: [3]
+  category: doc
+  workspace_id: "e6ce9391-c119-404f-a150-31c271a80c38"
+
+- id: doc-02
+  question: "What are the language requirements for Class XI?"
+  ground_truth: |
+    Hindi or English must be one of the two languages studied. Students must
+    study at least two languages in Class XI and XII.
+  expected_pages: [9]
+  category: doc
+  workspace_id: "e6ce9391-c119-404f-a150-31c271a80c38"
+
+- id: doc-03
+  question: "What is the grading scale for Class XI?"
+  ground_truth: |
+    Absolute grading scale: 91-100 A1, 81-90 A2, 71-80 B1, 61-70 B2,
+    51-60 C1, 41-50 C2, 33-40 D, 32 and below Essential Repeat.
+  expected_pages: [14]
+  category: doc
+  workspace_id: "e6ce9391-c119-404f-a150-31c271a80c38"
+
+- id: doc-04
+  question: "What schooling model does NCF-SE 2023 align with?"
+  ground_truth: |
+    The 5+3+3+4 schooling model under NEP 2020.
+  expected_pages: [17]
+  category: doc
+  workspace_id: "e6ce9391-c119-404f-a150-31c271a80c38"
+
+- id: doc-05
+  question: "Which subject combinations cannot be taken together?"
+  ground_truth: |
+    Business Studies (Code 054) and Business Administration (Code 833) cannot
+    be taken together. Only one of Computer Science, Informatics Practices,
+    or Information Technology can be taken.
+  expected_pages: [9]
+  category: doc
+  workspace_id: "e6ce9391-c119-404f-a150-31c271a80c38"
+
+# ── Multi-page synthesis (1) ───────────────────────────────
+- id: mixed-01
+  question: "How do elective areas relate to specific subject codes?"
+  ground_truth: |
+    Elective areas (page 3) list the broad categories — Languages, Sciences,
+    Mathematics, etc. Subject codes (page 9) specify the actual courses
+    within each area — e.g., Physics (Code 042), Chemistry (Code 043),
+    Biology (Code 044) fall under Sciences.
+  expected_pages: [3, 9]
+  category: mixed_retrieval
+  workspace_id: "e6ce9391-c119-404f-a150-31c271a80c38"
+
+# ── Placeholder questions (verify against PDF before relying on scores) ─
+- id: doc-06
+  question: "How is internal assessment conducted for compulsory areas?"
+  ground_truth: |
+    Assessment of compulsory areas is done continuously by collecting
+    information, reflecting on it, and using it to review children's
+    progress and plan future learning experiences. The documented data is
+    reflected in the Report Card as grades. Students are assessed on three
+    areas: Health and Physical Education, Work Experience (subsumed in
+    HPE), and General Studies. Activities are graded on an 8-point scale
+    (A1 to E) for classes XI-XII with no descriptive indicators. No
+    upscaling of grades is done. The concerned teacher makes an objective
+    assessment of the student's performance and participation throughout
+    the academic year and finally assigns grades.
+  expected_pages: [14]
+  category: doc
+  workspace_id: "e6ce9391-c119-404f-a150-31c271a80c38"
+
+- id: doc-07
+  question: "How are the 200 periods for Health and Physical Education internal assessment distributed?"
+  ground_truth: |
+    Total approximately 200 periods are allocated for Health and Physical
+    Education internal assessment (with Work Experience subsumed in it).
+    Distribution:
+    - Games: 90 periods (Athletics/Swimming, Team Games, Individual
+      Games/Activity, Adventure Sports)
+    - Health and Fitness: 50 periods
+    - SEWA: 50 periods
+    - Health and Activity Card: 10 periods
+    Grading is on a 9-point scale: A1, A2, B1, B2, C1, C2, D1, D2, E.
+  expected_pages: [15]
+  category: doc
+  workspace_id: "e6ce9391-c119-404f-a150-31c271a80c38"
+
+# ── Web-only (1) ───────────────────────────────────────────
+- id: web-01
+  question: "What are the latest developments in RAG evaluation frameworks?"
+  ground_truth: |
+    Recent RAG evaluation frameworks include RAGAS (LLM-as-judge scoring
+    for faithfulness, relevance, context precision), TruLens (tracing +
+    evaluation), DeepEval (CI/CD integration), and LangSmith (offline +
+    online eval). Key trends: multi-metric evaluation beyond accuracy,
+    LLM-as-judge standardization, continuous evaluation in production.
+  expected_pages: []
+  category: web
+  workspace_id: "e6ce9391-c119-404f-a150-31c271a80c38"
+
+# ── Refusal (1) ────────────────────────────────────────────
+- id: refusal-01
+  question: "What is the capital of France?"
+  ground_truth: |
+    I couldn't find this in your uploaded documents. (Off-topic — should
+    trigger explicit refusal, not hallucinate "Paris".)
+  expected_pages: []
+  category: refusal
+  workspace_id: "e6ce9391-c119-404f-a150-31c271a80c38"

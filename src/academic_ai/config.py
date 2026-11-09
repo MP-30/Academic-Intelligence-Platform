@@ -77,6 +77,16 @@ class Settings(BaseSettings):
 
     use_mcp_tools: bool = True
 
+    # --- Evals (v0.7) ---
+    eval_dataset_path: str = "tests/evals/dataset.yaml"
+    eval_baseline_path: str = "tests/evals/baseline.json"
+    eval_judge_model: str = "mistral.mistral-large-3-675b-instruct"
+    eval_judge_region: str = "us-east-1"
+    eval_regression_threshold: float = 0.05
+    eval_api_base: str = ""
+    eval_user_email: str = ""
+    eval_user_password: str = ""
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
