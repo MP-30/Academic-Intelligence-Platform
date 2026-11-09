@@ -43,9 +43,14 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "datasets>=5.2.0",
     "httpx>=0.28.1",
+    "langchain-aws>=1.9.2",
+    "langchain-community>=0.3.31,<0.4.0",
     "pytest>=9.2.0",
     "pytest-asyncio>=1.4.1.post1",
+    "pyyaml>=6.0.3",
+    "ragas>=0.3.9,<0.4.0",
     "ruff>=0.17.4",
 ]
 
