@@ -1,11 +1,10 @@
-
 # Academic Intelligence Platform
 
 [![CI](https://github.com/MP-30/Academic-Intelligence-Platform/actions/workflows/ci.yml/badge.svg)](https://github.com/MP-30/Academic-Intelligence-Platform/actions/workflows/ci.yml)
 [![Python 3.14](https://img.shields.io/badge/python-3.14-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Production RAG system that answers questions over academic PDFs with page-cited results. Agent routes between private document search and live web search via LLM tool selection. Tools are extracted into MCP servers — protocol-compliant and reusable across any MCP client.
+Production RAG system that answers questions over academic PDFs with page-cited results. An agent routes between private document search and live web search via LLM tool selection. Tools are extracted into MCP servers, making them protocol-compliant and reusable across any MCP client.
 
 **Live:** [https://ai.adityalive.tech](https://ai.adityalive.tech)
 
@@ -16,12 +15,12 @@ Production RAG system that answers questions over academic PDFs with page-cited 
 1. **Upload a PDF** (syllabus, lecture notes, paper) — stored in S3, ingestion queued in SQS
 2. **Worker processes it** — page-aware chunking → Bedrock Titan v2 embeddings → stored in pgvector
 3. **Ask a question** — hybrid search (vector similarity + full-text) fused via Reciprocal Rank Fusion
-4. **Get a cited answer** — LLM synthesizes a response citing exact page numbers (`[Doc p.3]`)
+4. **Get a cited answer** — the LLM synthesizes a response citing exact page numbers (`[Doc p.3]`)
 5. **Agent decides what to search** — routes between your documents and the live web (Tavily) based on the question
 6. **Tools exposed via MCP** — the same doc-search and web-search tools work with Claude Desktop, Cursor, or Cline
 
 Every answer is verifiable — citations point to the exact PDF page the claim came from.
-```
+
 ---
 
 ## Architecture
@@ -160,7 +159,6 @@ cd Academic-Intelligence-Platform
 
 # 2. Install dependencies (creates .venv + editable install)
 uv sync
-uv pip install -e .
 
 # 3. Configure environment
 cp .env.example .env
@@ -168,7 +166,7 @@ cp .env.example .env
 #   POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB
 #   AWS_PROFILE (points to a profile with Bedrock access)
 #   TAVILY_API_KEY
-#   COGNITO_USER_POOL_ID, COGNITO_CLIENT_ID (see "AWS mode" below)
+#   COGNITO_USER_POOL_ID, COGNITO_CLIENT_ID
 
 # 4. Start infra
 docker compose up -d          # postgres on :5432
@@ -177,7 +175,7 @@ lstk restart --persist        # localstack on :4566 (S3 + SQS)
 # 5. Create S3 bucket + SQS queues (once)
 aws --endpoint-url=http://localhost:4566 s3 mb s3://academic-docs-local
 aws --endpoint-url=http://localhost:4566 sqs create-queue --queue-name ingestion-jobs-dlq
-# ... see docs/quickstart.md for full queue setup with DLQ policy
+# ... see docs/quickstart.md for the full queue setup with DLQ policy
 
 # 6. Run migrations
 uv run alembic upgrade head
@@ -186,7 +184,7 @@ uv run alembic upgrade head
 make dev
 ```
 
-**Open** http://localhost:7860
+Then open <http://localhost:7860>.
 
 ### Local testing with real AWS services
 
@@ -199,13 +197,13 @@ set -a; source .env.test; set +a
 uv run uvicorn academic_ai.main:app --port 8000
 ```
 
-This gives you real auth (Cognito), real web search (Tavily), real LLM (Bedrock) — only the DB is local.
+This gives you real auth (Cognito), real web search (Tavily), and a real LLM (Bedrock) — only the DB is local.
 
 ---
 
 ## Endpoints
 
-All endpoints (except `/health` and `/auth/*`) require `Authorization: Bearer <jwt>` header.
+All endpoints (except `/health` and `/auth/*`) require an `Authorization: Bearer <jwt>` header.
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -252,7 +250,7 @@ curl -s -X POST https://api.adityalive.tech/agent \
 }
 ```
 
-Multi-turn: pass `conversation_id` from the previous response to continue the same session.
+Multi-turn: pass the `conversation_id` from the previous response to continue the same session.
 
 ---
 
@@ -260,7 +258,7 @@ Multi-turn: pass `conversation_id` from the previous response to continue the sa
 
 ### Ingestion Pipeline
 
-```
+```text
 PDF upload → S3 → SQS job → Worker (ECS Fargate)
                                 │
                                 ├─ Download PDF from S3
@@ -271,7 +269,7 @@ PDF upload → S3 → SQS job → Worker (ECS Fargate)
                                 └─ Update documents.processing_status = 'READY'
 ```
 
-Worker is **idempotent** — `ON CONFLICT (document_id, chunk_index) DO NOTHING` means re-processing is safe. SQS retries with 5-attempt DLQ. `status == COMPLETED` guard short-circuits duplicate deliveries.
+The worker is **idempotent** — `ON CONFLICT (document_id, chunk_index) DO NOTHING` means re-processing is safe. SQS retries up to 5 times before moving a message to the DLQ, and a `status == READY` guard short-circuits duplicate deliveries.
 
 ### Hybrid Retrieval (RRF)
 
@@ -280,20 +278,20 @@ Two retrievers run **in a single SQL query**:
 1. **Semantic** — `embedding <=> query_embedding` (cosine distance via pgvector HNSW index)
 2. **Keyword** — `search_vector @@ plainto_tsquery('english', query)` (tsvector GIN index)
 
-Results fused via **Reciprocal Rank Fusion**:
+Results are fused via **Reciprocal Rank Fusion**:
 
 ```sql
 COALESCE(1.0 / (60 + semantic_rank), 0.0) + COALESCE(1.0 / (60 + keyword_rank), 0.0)
 ```
 
-The `FULL OUTER JOIN` keeps chunks found by **either** retriever. A chunk found only by keyword (exact match like "CS-401") still survives. The 60 constant dampens rank impact — the standard RRF formulation (Cormack et al., 2009).
+The `FULL OUTER JOIN` keeps chunks found by **either** retriever, so a chunk found only by keyword (an exact match like "CS-401") still survives. The constant 60 dampens the impact of rank differences — the standard RRF formulation (Cormack et al., 2009).
 
 ### Agent + MCP
 
 `/agent` runs a **Strands orchestrator** (Mistral Large 3) with two tools:
 
-- `search_course_documents(query)` — MCP tool on `doc-mcp` sidecar (`:8001`)
-- `search_web(query)` — MCP tool on `web-mcp` sidecar (`:8002`)
+- `search_course_documents(query)` — MCP tool on the `doc-mcp` sidecar (`:8001`)
+- `search_web(query)` — MCP tool on the `web-mcp` sidecar (`:8002`)
 
 The LLM decides which tool(s) to call based on question type:
 
@@ -305,7 +303,7 @@ The LLM decides which tool(s) to call based on question type:
 
 **Multi-turn memory** is persisted in `conversations.llm_context_state` (JSONB) and `messages.content_blocks` (JSONB). Each request loads prior history and replays it to the LLM.
 
-**Security:** The LLM never sees `user_id`. Auth is bound server-side into `X-User-Id` header on the MCP connection, and tools scope every query to that user at the SQL level. Tenant isolation is tested in CI (attacker user + real workspace → 0 rows).
+**Security:** The LLM never sees `user_id`. Auth is bound server-side into an `X-User-Id` header on the MCP connection, and tools scope every query to that user at the SQL level. Tenant isolation is tested in CI (attacker user + real workspace → 0 rows).
 
 ---
 
@@ -321,23 +319,23 @@ uv run pytest tests/test_tenant_isolation.py -v
 
 **What's covered:**
 
-- **`test_parser.py`** — page-aware chunking on fixture PDF (multi-page, contiguous `chunk_index`)
+- **`test_parser.py`** — page-aware chunking on a fixture PDF (multi-page, contiguous `chunk_index`)
 - **`test_tenant_isolation.py`** — three assertions:
   1. Attacker user + real workspace → **0 chunks**
   2. Real user + wrong workspace → **0 chunks**
   3. Real user + real workspace → **>0 chunks** (control — proves isolation isn't blocking everything)
 
-CI runs the full suite + import smoke tests + Docker build on every push (see `.github/workflows/ci.yml`).
+CI runs the full suite, import smoke tests, and a Docker build on every push (see `.github/workflows/ci.yml`).
 
 ---
 
 ## Deployment
 
-Manual button-triggered via GitHub Actions — full automation with **zero stored AWS credentials**.
+Manual, button-triggered via GitHub Actions — fully automated, with **zero stored AWS credentials**.
 
 ### How to deploy
 
-1. Open https://github.com/MP-30/Academic-Intelligence-Platform/actions/workflows/deploy.yml
+1. Open <https://github.com/MP-30/Academic-Intelligence-Platform/actions/workflows/deploy.yml>
 2. Click **Run workflow**
 3. Select service: `all` / `api` / `worker` / `ui`
 4. Click **Run workflow**
@@ -345,11 +343,11 @@ Manual button-triggered via GitHub Actions — full automation with **zero store
 **What it does:**
 
 1. Assumes `GitHubActionsDeployRole` via **OIDC** (short-lived token, no stored secrets)
-2. Builds Docker image (`linux/amd64`, matching ECS)
+2. Builds the Docker image (`linux/amd64`, matching ECS)
 3. Pushes to ECR as `:latest`
 4. Triggers `aws ecs update-service --force-new-deployment`
 5. Waits for `aws ecs wait services-stable`
-6. Hits `https://api.adityalive.tech/health` until `200` (retries 10×)
+6. Polls `https://api.adityalive.tech/health` until it returns `200` (retries 10×)
 
 **Rollback:** re-run the workflow from a previous commit hash.
 
@@ -357,13 +355,13 @@ Manual button-triggered via GitHub Actions — full automation with **zero store
 
 All AWS infra is provisioned by a separate Terraform repo: [academic-intelligence-platform-terraform](https://github.com/MP-30/academic-intelligence-platform-terraform)
 
-Runs at **~$47/month** production cost.
+Runs at **~$48/month** in production (see [Cost](#cost)).
 
 ---
 
 ## Project Structure
 
-```
+```text
 .
 ├── src/academic_ai/
 │   ├── api/              FastAPI routers
@@ -412,6 +410,7 @@ Runs at **~$47/month** production cost.
 │   └── main.py           FastAPI app + routers
 │
 ├── alembic/              Migrations
+├── docs/                 Quickstart, roadmap, version deep dives
 ├── tests/                pytest suite
 ├── scripts/
 │   ├── ecs_entrypoint.sh  5-mode dispatch (worker/api/ui/mcp-doc/mcp-web)
@@ -433,7 +432,7 @@ Runs at **~$47/month** production cost.
 
 ### Why Bedrock (not OpenAI)?
 
-- **Compliance** — data stays in AWS, no third-party API calls
+- **Compliance** — data stays in AWS, no third-party LLM API calls
 - **IAM auth** — no API keys to rotate for LLM/embeddings
 - **Cost visibility** — one line item in AWS Cost Explorer
 
@@ -441,12 +440,12 @@ Runs at **~$47/month** production cost.
 
 - **One database** — relational + vectors + full-text + JSONB
 - **Hybrid search in one query** — RRF fusion is a single SQL statement
-- **Free tier** — no separate vector DB bill
+- **No extra bill** — no separate vector DB to pay for
 - **Scales to ~1M vectors** — sufficient for this use case
 
 ### Why ECS Fargate (not Lambda)?
 
-- **Private RDS access** — Lambda in VPC forces NAT (~$32/mo); Lambda outside VPC can't reach private RDS
+- **Private RDS access** — Lambda in a VPC forces a NAT gateway (~$32/mo) for outbound calls; Lambda outside the VPC can't reach private RDS
 - **EC2-free** — no instance patching
 - **Sidecar support** — MCP servers run in the same task, no extra Fargate cost
 - **Same Docker image** — migrates 1:1 to EKS at v0.12
@@ -454,7 +453,7 @@ Runs at **~$47/month** production cost.
 ### Why MCP (not in-process tools)?
 
 - **Protocol compliance** — tools work with any MCP client (Claude Desktop, Cursor, Zed)
-- **Reusability** — same server can be consumed by multiple agents
+- **Reusability** — the same server can be consumed by multiple agents
 - **Foundation for A2A** — multi-agent orchestration (v0.10) requires protocol-level tools
 
 ---
@@ -464,11 +463,13 @@ Runs at **~$47/month** production cost.
 See [docs/ROADMAP.md](./docs/ROADMAP.md) for the full version history.
 
 **Recently shipped:**
+
 - ✅ **v0.6** — CI/CD pipelines (GitHub Actions + OIDC)
 - ✅ **v0.5** — MCP servers as sidecar containers
 - ✅ **v0.4** — Strands agent with tool routing
 
 **Next up:**
+
 - 📋 **v0.7** — Evals (RAGAS) with CI integration
 - 📋 **v0.8** — Observability (OTel → Datadog)
 - 📋 **v0.10** — Multi-agent A2A
@@ -486,20 +487,21 @@ See [docs/ROADMAP.md](./docs/ROADMAP.md) for the full version history.
 
 ## Cost
 
-Running in production at **~$47/month**:
+Running in production at **~$48/month**:
 
 | Service | Monthly |
 |---|---|
 | ECS Fargate (API + worker + UI tasks) | ~$36 |
-| RDS `db.t3.micro` | $0 (free tier, 12mo) |
+| RDS `db.t3.micro` | $0 (free tier, first 12 months) |
 | ALB | ~$8 |
 | Bedrock (embeddings + LLM) | ~$3 |
 | S3, SQS, ECR, CloudWatch | ~$0.50 |
-| **Total** | **~$47/month** |
+| **Total** | **~$48/month** |
+
+> RDS cost is $0 only while the 12-month free tier lasts; expect the total to rise afterwards.
 
 ---
 
 ## License
 
 MIT — see [LICENSE](./LICENSE) for details.
-```
