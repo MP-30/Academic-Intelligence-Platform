@@ -8,6 +8,7 @@ Reads latest tests/evals/results-*.json
 Writes tests/evals/baseline.json
 """
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,9 +30,13 @@ from academic_ai.config import settings
 
 
 def _judge_llm():
-    session = boto3.Session(
-        profile_name="bedrock", region_name=settings.eval_judge_region
-    )
+
+    profile = os.getenv("EVAL_JUDGE_PROFILE")  # unset in CI
+    session_kwargs = {"region_name": settings.eval_judge_region}
+    if profile:
+        session_kwargs["profile_name"] = profile
+    session = boto3.Session(**session_kwargs)
+    ...
     chat = ChatBedrockConverse(
         model=settings.eval_judge_model,
         client=session.client("bedrock-runtime"),
@@ -42,9 +47,12 @@ def _judge_llm():
 
 
 def _judge_embeddings():
-    session = boto3.Session(
-        profile_name="bedrock", region_name=settings.eval_judge_region
-    )
+
+    profile = os.getenv("EVAL_JUDGE_PROFILE")
+    session_kwargs = {"region_name": settings.eval_judge_region}
+    if profile:
+        session_kwargs["profile_name"] = profile
+    session = boto3.Session(**session_kwargs)
     emb = BedrockEmbeddings(
         client=session.client("bedrock-runtime"),
         model_id="amazon.titan-embed-text-v2:0",

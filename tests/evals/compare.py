@@ -36,10 +36,9 @@ def main():
         sys.exit(1)
 
     if not reference_path.exists():
-        print(f"INFO: no reference baseline at {reference_path} — creating from current")
-        reference_path.write_text(baseline_path.read_text())
-        print("Committing this as the reference. Re-run compare after next eval.")
-        sys.exit(0)
+        print(f"ERROR: {reference_path} missing — commit a reference before running CI",
+              file=sys.stderr)
+        sys.exit(1)
 
     current = load(baseline_path)
     reference = load(reference_path)
