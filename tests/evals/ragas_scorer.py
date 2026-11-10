@@ -17,7 +17,7 @@ import boto3
 import pandas as pd
 from datasets import Dataset
 from langchain_aws import BedrockEmbeddings, ChatBedrockConverse
-from ragas import evaluate
+from ragas import RunConfig, evaluate
 from ragas.embeddings import LangchainEmbeddingsWrapper
 from ragas.llms import LangchainLLMWrapper
 from ragas.metrics import (
@@ -41,7 +41,7 @@ def _judge_llm():
         model=settings.eval_judge_model,
         client=session.client("bedrock-runtime"),
         temperature=0.0,
-        max_tokens=2048,
+        max_tokens=8192,
     )
     return LangchainLLMWrapper(chat)
 
@@ -129,10 +129,31 @@ def main():
         metrics=[faithfulness, answer_relevancy, context_precision],
         llm=_judge_llm(),
         embeddings=_judge_embeddings(),
-        raise_exceptions=True,
+        raise_exceptions=False,
+        run_config=RunConfig(
+            timeout=180,
+            max_retries=3,
+            max_wait=60,
+        ),
     )
 
     df = ragas_result.to_pandas()
+    MIN_SCORED = 0.8  # at least 80% of samples must have non-nan faithfulness
+
+    nan_count = df["faithfulness"].isna().sum()
+    scored = len(df) - nan_count
+    ratio = scored / len(df) if len(df) else 0.0
+
+    print(f"\nScored: {scored}/{len(df)} ({ratio:.0%})")
+    if ratio < MIN_SCORED:
+        print(
+            f"ERROR: {nan_count} of {len(df)} rows have nan faithfulness "
+            f"(only {ratio:.0%} scored, need ≥{MIN_SCORED:.0%})",
+            file=sys.stderr,
+        )
+        print("This is the v0.7 bug — the aggregate would be a fake mean over few rows.",
+              file=sys.stderr)
+        sys.exit(1)
 
     metrics = {
         "faithfulness": float(df["faithfulness"].mean(skipna=True)),
