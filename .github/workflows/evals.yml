@@ -22,7 +22,6 @@ jobs:
     env:
       AWS_REGION: us-east-1
       AWS_DEFAULT_REGION: us-east-1
-      AWS_PROFILE: ""
       EVAL_API_BASE: https://api.adityalive.tech
       DATABASE_URL: postgresql+asyncpg://unused:unused@localhost:5432/unused
       POSTGRES_USER: unused
@@ -48,9 +47,7 @@ jobs:
         run: uv python install 3.14
 
       - name: Install dependencies
-        run: |
-          uv sync --frozen
-          uv pip install -e .
+        run: uv sync --frozen
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -67,6 +64,22 @@ jobs:
 
       - name: Score with RAGAS
         run: uv run python -m tests.evals.ragas_scorer
+
+      - name: Diagnose failure
+        if: failure()
+        run: |
+          echo "::group::AWS identity"
+          aws sts get-caller-identity || echo "STS call failed"
+          echo "::endgroup::"
+          echo "::group::Env vars"
+          env | grep -E '^(AWS_|EVAL_|BEDROCK_)' \
+            | sed -E 's/(AWS_SECRET_ACCESS_KEY|AWS_SESSION_TOKEN|AWS_ACCESS_KEY_ID|EVAL_USER_PASSWORD)=.*/\1=***REDACTED***/'
+          echo "::endgroup::"
+          echo "::group::Bedrock models"
+          aws bedrock list-foundation-models --region us-east-1 \
+            --query 'modelSummaries[?contains(modelId,`claude-3-5`) || contains(modelId,`titan-embed`)].modelId' \
+            --output text || echo "ListFoundationModels failed"
+          echo "::endgroup::"
 
       - name: Compare vs reference baseline
         run: uv run python -m tests.evals.compare
