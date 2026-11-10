@@ -1,4 +1,5 @@
 """POST /agent — Strands-powered conversational RAG."""
+import json as _j
 import logging
 import re
 from uuid import UUID
@@ -206,6 +207,8 @@ async def run_agent(
     tool_calls = _extract_tool_calls(agent_messages_snapshot)
     citations = _extract_citations(answer_text, agent_messages_snapshot)
     contexts = _extract_contexts(agent_messages_snapshot)
+
+    log.warning("SNAPSHOT_DUMP: %s", _j.dumps(agent_messages_snapshot, default=str)[:6000])
 
     await save_turn(
         db,
