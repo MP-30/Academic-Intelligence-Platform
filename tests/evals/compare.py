@@ -36,9 +36,9 @@ def main():
         sys.exit(1)
 
     if not reference_path.exists():
-        print(f"ERROR: {reference_path} missing — commit a reference before running CI",
-              file=sys.stderr)
+        print(f"ERROR: {reference_path} missing", file=sys.stderr)
         sys.exit(1)
+
 
     current = load(baseline_path)
     reference = load(reference_path)
