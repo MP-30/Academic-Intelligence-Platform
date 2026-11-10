@@ -95,3 +95,4 @@ class AgentResponse(BaseModel):
     response: str
     tool_calls: list[AgentToolCall]
     citations: list[AgentCitation]
+    contexts: list[str] = []

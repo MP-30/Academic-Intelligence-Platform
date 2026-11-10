@@ -111,6 +111,40 @@ def _extract_tool_calls(messages: list) -> list[AgentToolCall]:
                 ))
     return calls
 
+def _extract_contexts(messages: list) -> list[str]:
+    """Pull retrieved chunk text out of Strands toolResult blocks.
+
+    Strands stores tool results as:
+        {"toolResult": {"toolUseId": "...", "content": [{"text": "..."}], "status": "..."}}
+    The tool's `text` payload is a JSON string (list of chunks).
+    """
+    import json as _json
+    contexts: list[str] = []
+    for msg in messages:
+        content = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", None)
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if not (isinstance(block, dict) and block.get("toolResult")):
+                continue
+            tr = block["toolResult"]
+            for part in tr.get("content", []):
+                text = part.get("text") if isinstance(part, dict) else None
+                if not text:
+                    continue
+                # Tool returns JSON: [{page_number, text, ...}, ...]
+                try:
+                    parsed = _json.loads(text)
+                except (ValueError, TypeError):
+                    contexts.append(text)
+                    continue
+                if isinstance(parsed, list):
+                    for item in parsed:
+                        if isinstance(item, dict) and item.get("text"):
+                            contexts.append(item["text"])
+                elif isinstance(parsed, dict) and parsed.get("text"):
+                    contexts.append(parsed["text"])
+    return contexts
 
 @router.post("", response_model=AgentResponse)
 async def run_agent(
@@ -171,6 +205,7 @@ async def run_agent(
     # Extract tool calls + citations
     tool_calls = _extract_tool_calls(agent_messages_snapshot)
     citations = _extract_citations(answer_text, agent_messages_snapshot)
+    contexts = _extract_contexts(agent_messages_snapshot)
 
     await save_turn(
         db,
@@ -187,4 +222,5 @@ async def run_agent(
         response=answer_text,
         tool_calls=tool_calls,
         citations=citations,
+        contexts=contexts,
     )

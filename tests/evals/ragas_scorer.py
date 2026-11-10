@@ -40,8 +40,8 @@ def _judge_llm():
     chat = ChatBedrockConverse(
         model=settings.eval_judge_model,
         client=session.client("bedrock-runtime"),
-        temperature=0.1,
-        max_tokens=512,
+        temperature=0.0,
+        max_tokens=2048,
     )
     return LangchainLLMWrapper(chat)
 
@@ -72,15 +72,11 @@ def _build_dataset(results: list[dict]) -> tuple[Dataset, list[dict]]:
         if not r.get("response") or not r.get("ground_truth"):
             continue
 
-        ctx = [
-            c.get("content", "")
-            for c in r.get("citations", [])
-            if c.get("content")
-        ]
-        # RAGAS needs at least one context. If LLM cited nothing, use the response itself
-        # (this yields low faithfulness honestly — that's the signal we want)
+        ctx = r.get("contexts") or []
+
         if not ctx:
-            ctx = [r["response"]]
+            print(f"⚠️  SKIP {r['id']}: no retrieved contexts, cannot score faithfulness")
+            continue
 
         questions.append(r["question"])
         answers.append(r["response"])
@@ -133,6 +129,7 @@ def main():
         metrics=[faithfulness, answer_relevancy, context_precision],
         llm=_judge_llm(),
         embeddings=_judge_embeddings(),
+        raise_exceptions=True,
     )
 
     df = ragas_result.to_pandas()
@@ -144,6 +141,14 @@ def main():
     }
     metrics["citation_accuracy"] = _citation_accuracy(valid)
     metrics["count"] = len(df)
+
+    nan_rows = df[df[["faithfulness", "answer_relevancy", "context_precision"]].isna().any(axis=1)]
+    if not nan_rows.empty:
+        print(f"\n⚠️  {len(nan_rows)} rows have NaN metrics:")
+        for i, (_, row) in enumerate(df.iterrows()):
+            if pd.isna(row["faithfulness"]) or pd.isna(row["answer_relevancy"]) or pd.isna(row["context_precision"]):
+                qid = valid[i]["id"] if i < len(valid) else f"row-{i}"
+                print(f"  {qid}: f={row['faithfulness']}, ar={row['answer_relevancy']}, cp={row['context_precision']}")
 
     baseline = {
         "generated_at": datetime.now(timezone.utc).isoformat(),

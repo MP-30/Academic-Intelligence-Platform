@@ -87,6 +87,7 @@ async def main():
                     "tool_calls": r["tool_calls"],
                     "citations": r["citations"],
                     "conversation_id": r["conversation_id"],
+                    "contexts": r.get("contexts") or [c.get("content") for c in r["citations"] if c.get("content")],
                 })
                 tools = [t["tool"] for t in r["tool_calls"]]
                 print(f"  tools={tools} citations={len(r['citations'])}")
