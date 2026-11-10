@@ -1,5 +1,5 @@
 """POST /agent — Strands-powered conversational RAG."""
-import json as _j
+# import json as _j
 import logging
 import re
 from uuid import UUID
@@ -141,10 +141,14 @@ def _extract_contexts(messages: list) -> list[str]:
                     continue
                 if isinstance(parsed, list):
                     for item in parsed:
-                        if isinstance(item, dict) and item.get("text"):
-                            contexts.append(item["text"])
-                elif isinstance(parsed, dict) and parsed.get("text"):
-                    contexts.append(parsed["text"])
+                        if isinstance(item, dict):
+                            ct = item.get("content") or item.get("text")
+                            if ct:
+                                contexts.append(ct)
+                elif isinstance(parsed, dict):
+                    ct = parsed.get("content") or parsed.get("text")
+                    if ct:
+                        contexts.append(ct)
     return contexts
 
 @router.post("", response_model=AgentResponse)
@@ -208,7 +212,7 @@ async def run_agent(
     citations = _extract_citations(answer_text, agent_messages_snapshot)
     contexts = _extract_contexts(agent_messages_snapshot)
 
-    log.warning("SNAPSHOT_DUMP: %s", _j.dumps(agent_messages_snapshot, default=str)[:6000])
+    # log.warning("SNAPSHOT_DUMP: %s", _j.dumps(agent_messages_snapshot, default=str)[:6000])
 
     await save_turn(
         db,
