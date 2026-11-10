@@ -87,6 +87,12 @@ class Settings(BaseSettings):
     eval_user_email: str = ""
     eval_user_password: str = ""
 
+    # v0.9 — memory compaction
+    summary_trigger_turns: int = 10
+    recent_messages_keep: int = 4
+    summary_max_tokens: int = 400
+    summary_model: str = "mistral-large-2407-v1:0"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
