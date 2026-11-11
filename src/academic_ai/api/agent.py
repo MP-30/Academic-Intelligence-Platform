@@ -4,10 +4,11 @@ import logging
 import re
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from academic_ai.agents.context_manager import (
+    compact_if_needed,
     get_or_create_conversation,
     load_history,
     save_turn,
@@ -25,7 +26,7 @@ from academic_ai.api.schemas import (
 )
 from academic_ai.auth.dependencies import get_current_user
 from academic_ai.config import settings
-from academic_ai.db.session import get_db
+from academic_ai.db.session import SessionLocal, get_db
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/agent", tags=["agent"])
@@ -95,6 +96,15 @@ def _extract_citations(answer: str, history_new: list[dict]) -> list[AgentCitati
 
     return citations
 
+async def _compact_bg(conversation_id) -> None:
+    """Background task: run compaction with its own DB session.
+
+    Runs AFTER the response is sent. Uses a fresh session so it can't be
+    affected by the request's session state (or by the request raising
+    during response serialization).
+    """
+    async with SessionLocal() as bg_db:
+        await compact_if_needed(bg_db, conversation_id)
 
 def _extract_tool_calls(messages: list) -> list[AgentToolCall]:
     """Extract tool_use blocks from Strands message history."""
@@ -154,6 +164,7 @@ def _extract_contexts(messages: list) -> list[str]:
 @router.post("", response_model=AgentResponse)
 async def run_agent(
     req: AgentRequest,
+    background_tasks: BackgroundTasks,
     user_id: UUID = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -223,7 +234,9 @@ async def run_agent(
         tool_calls=[tc.model_dump() for tc in tool_calls],
         citations=[c.model_dump() for c in citations],
     )
-
+    # v0.9 — fire compaction after response is sent.
+    # Runs only when unsummarized messages > 20 (10 turns). No-op otherwise.
+    background_tasks.add_task(_compact_bg, conv_id)
     return AgentResponse(
         conversation_id=conv_id,
         response=answer_text,

@@ -48,13 +48,13 @@ migrate-new:  ## Generate a new migration (usage: make migrate-new MSG="add foo"
 # ─────────────────────────────────────────────────────────────────────
 
 .PHONY: up
-up:  ## Start postgres (docker) + localstack (lstk)
+up:
 	docker compose up -d
-	lstk restart --persist
+	lstk start --persist 2>/dev/null || lstk restart --persist
 	@echo ""
 	@echo "⏳ Waiting for services..."
 	@sleep 3
-	@curl -sf http://localhost:4566/_localstack/health > /dev/null && echo "✅ localstack up" || echo "❌ localstack down"
+	@curl -sf http://localhost:4566/_localstack/health > /dev/null && echo "✅ localstack up" || echo "⚠️  localstack down (migrations still work)"
 	@docker compose ps
 
 .PHONY: down

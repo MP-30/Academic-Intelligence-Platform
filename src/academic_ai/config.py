@@ -89,7 +89,7 @@ class Settings(BaseSettings):
 
     # v0.9 — memory compaction
     summary_trigger_turns: int = 10
-    recent_messages_keep: int = 4
+    recent_messages_keep: int = 8
     summary_max_tokens: int = 400
     summary_model: str = "mistral-large-2407-v1:0"
 

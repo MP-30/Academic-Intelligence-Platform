@@ -28,6 +28,7 @@ dependencies = [
     { name = "pydantic-settings" },
     { name = "pypdf" },
     { name = "python-jose", extra = ["cryptography"] },
+    { name = "sa" },
     { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "strands-agents" },
     { name = "strands-agents-tools" },
@@ -68,6 +69,7 @@ requires-dist = [
     { name = "pydantic-settings", specifier = ">=2.16.2" },
     { name = "pypdf", specifier = ">=6.21.4" },
     { name = "python-jose", extras = ["cryptography"], specifier = ">=3.5.0" },
+    { name = "sa", specifier = ">=0.0.4" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.1.8" },
     { name = "strands-agents", specifier = ">=1.64.0" },
     { name = "strands-agents-tools", specifier = ">=0.9.0" },
@@ -3338,6 +3340,21 @@ wheels = [
 ]
 
 [[package]]
+name = "sa"
+version = "0.0.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "scipy" },
+    { name = "sharedmem" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e6/39/b174de48a64427bb9b754e528a48220a61b4d2383d99f6154efb0273d928/sa-0.0.4.tar.gz", hash = "sha256:9f44387b5c95b5ea6ce5cc407d1c23ef6ea6fd35f8839fee59e1be0f50c2ecaa", size = 17493, upload-time = "2019-10-23T00:30:35.227Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/63/1a/d7ed6e2cd440f02f60f6ef3dd59a1691878fb28365791b32f63d8d8be21a/sa-0.0.4-py3-none-any.whl", hash = "sha256:b3023279aa6e0054e4f81c58fbb462a0d1834bb63978aa64bac3183a775a32c1", size = 24442, upload-time = "2019-10-23T00:30:33.636Z" },
+]
+
+[[package]]
 name = "safehttpx"
 version = "0.1.7"
 source = { registry = "https://pypi.org/simple" }
@@ -3431,6 +3448,15 @@ sdist = { url = "https://files.pythonhosted.org/packages/c5/3b/1e47acf2456781c26
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b2/88/cabf98d017d7b940720e514e5f8ee02e3e6f7495caf93c30735a38387ec4/sentry_sdk-2.73.0-py3-none-any.whl", hash = "sha256:0bcfa6928ea5adbb89591858b514d27adac27c7a3cccc31b20ed10e0b09eda9e", size = 549011, upload-time = "2026-10-22T09:08:47.88Z" },
 ]
+
+[[package]]
+name = "sharedmem"
+version = "0.3.8"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/24/49/e763891d4e92d59b35a73ffafea63515804cd21f49fc2782a7941d2053ca/sharedmem-0.3.8.tar.gz", hash = "sha256:c654a6bee2e2f35c82e6cc8b6c262fcabd378f5ba11ac9ef71530f8dabb8e2f7", size = 17858, upload-time = "2020-10-01T15:58:10.825Z" }
 
 [[package]]
 name = "shellingham"
