@@ -82,10 +82,10 @@ async def load_history(
             continue
         capped = []
         for block in content:
-            text = block.get("text", "") if isinstance(block, dict) else ""
-            if len(text) > MAX_MESSAGE_CHARS:
-                text = text[:MAX_MESSAGE_CHARS] + "... [truncated]"
-            capped.append({"text": text})
+            block_text = block.get("text", "") if isinstance(block, dict) else ""
+            if len(block_text) > MAX_MESSAGE_CHARS:
+                block_text = block_text[:MAX_MESSAGE_CHARS] + "... [truncated]"
+            capped.append({"text": block_text})
         history.append({"role": r["role"], "content": capped})
 
     log.info(
