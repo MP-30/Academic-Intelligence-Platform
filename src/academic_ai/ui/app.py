@@ -3,19 +3,17 @@
 Uses /agent (v0.4+) so the UI exercises the full stack:
 Strands agent, MCP tools, hybrid retrieval, multi-turn memory,
 rolling summary compaction (v0.9), rich citations + retrieved contexts.
+
+The API defaults workspace_id to user_id when omitted, so the UI never
+asks for a workspace UUID — each user gets a personal workspace
+transparently. Multi-tenancy is still enforced at the SQL layer.
 """
-import re
 import time
 
 import gradio as gr
 import httpx
 
 from academic_ai.config import settings
-
-_UUID_RE = re.compile(
-    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-    re.IGNORECASE,
-)
 
 
 def _err(msg: str) -> str:
@@ -46,20 +44,17 @@ def login(email: str, password: str):
     return f"✅ Logged in as **{email}**", r.json()["id_token"]
 
 
-def upload_pdf(file_path: str, token: str, workspace_id: str):
+def upload_pdf(file_path: str, token: str):
     if not token:
         return "❌ Log in first", ""
     if not file_path:
         return "❌ PDF required", ""
-    if not workspace_id or not _UUID_RE.match(workspace_id.strip()):
-        return "❌ Valid workspace UUID required", ""
     try:
         with open(file_path, "rb") as f:
             files = {"file": (file_path.split("/")[-1], f, "application/pdf")}
             r = httpx.post(
                 f"{settings.api_base_url}/documents",
                 files=files,
-                data={"workspace_id": workspace_id.strip()},
                 headers={"Authorization": f"Bearer {token}"},
                 timeout=120,
             )
@@ -92,10 +87,10 @@ def poll_status(doc_id: str, token: str):
     return f"{icons.get(d['processing_status'], '❓')} **{d['processing_status']}** — {d['page_count']} pages"
 
 
-def search(query: str, token: str, workspace_id: str, top_k: int):
+def search(query: str, token: str, top_k: int):
     if not token or not query:
         return "⚠️ Log in and enter a query"
-    body = {"query": query, "workspace_id": workspace_id or None, "top_k": int(top_k)}
+    body = {"query": query, "top_k": int(top_k)}
     try:
         r = httpx.post(
             f"{settings.api_base_url}/search",
@@ -154,13 +149,13 @@ def _format_contexts(contexts: list[str], limit: int = 3) -> str:
     )
 
 
-def chat_agent(question: str, history: list, token: str, workspace_id: str, conv_id: str):
+def chat_agent(question: str, history: list, token: str, conv_id: str):
     """Chat via /agent — multi-turn, MCP tools, citations, contexts."""
     history = history or []
     if not token or not question or not question.strip():
         return history, "", conv_id, ""
 
-    body = {"message": question, "workspace_id": workspace_id or None}
+    body = {"message": question}
     if conv_id:
         body["conversation_id"] = conv_id
 
@@ -254,12 +249,6 @@ with gr.Blocks(
         login_status = gr.Markdown("🔒 Not logged in")
         token_state = gr.State("")
 
-    workspace_id = gr.Textbox(
-        label="Workspace ID (UUID)",
-        placeholder="paste workspace uuid",
-        info="Required for upload, search, and chat. All operations are tenant-scoped.",
-    )
-
     with gr.Tabs():
         with gr.Tab("💬 Chat"):
             with gr.Row():
@@ -301,18 +290,18 @@ with gr.Blocks(
             results = gr.Markdown()
 
     login_btn.click(login, [email, password], [login_status, token_state])
-    upload_btn.click(upload_pdf, [file, token_state, workspace_id], [upload_out, doc_id_state])
+    upload_btn.click(upload_pdf, [file, token_state], [upload_out, doc_id_state])
     poll_btn.click(poll_status, [doc_id_state, token_state], poll_out)
-    search_btn.click(search, [query, token_state, workspace_id, top_k], results)
+    search_btn.click(search, [query, token_state, top_k], results)
 
     chat_send.click(
         chat_agent,
-        [chat_input, chatbot, token_state, workspace_id, conv_id_state],
+        [chat_input, chatbot, token_state, conv_id_state],
         [chatbot, chat_input, conv_id_state, chat_status],
     )
     chat_input.submit(
         chat_agent,
-        [chat_input, chatbot, token_state, workspace_id, conv_id_state],
+        [chat_input, chatbot, token_state, conv_id_state],
         [chatbot, chat_input, conv_id_state, chat_status],
     )
     new_conv_btn.click(new_conversation, outputs=[chatbot, conv_id_state, chat_status])
