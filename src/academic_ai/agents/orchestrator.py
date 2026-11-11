@@ -69,6 +69,9 @@ Style:
 - Concise bullet lists for multi-part answers
 - Remember earlier context in follow-up questions
 - Never fabricate facts, page numbers, or URLs
+- Answer in 150-250 words unless the user explicitly asks for detail
+- Cite page numbers like [Doc p.N], do not reproduce source chunk text verbatim
+- For "tell me more" / "elaborate" follow-ups, extend the previous answer by 1-2 points. Do not restart the answer from scratch.
 """
 
 

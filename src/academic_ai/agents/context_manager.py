@@ -12,6 +12,7 @@ from academic_ai.db.models import Conversation, Message
 log = logging.getLogger(__name__)
 
 SUMMARY_PROMPT_PATH = Path(__file__).parent / "prompts" / "summary.md"
+MAX_MESSAGE_CHARS = 4000
 
 
 async def get_or_create_conversation(
@@ -79,7 +80,13 @@ async def load_history(
         content = r["content_blocks"] or []
         if not isinstance(content, list):
             continue
-        history.append({"role": r["role"], "content": content})
+        capped = []
+        for block in content:
+            text = block.get("text", "") if isinstance(block, dict) else ""
+            if len(text) > MAX_MESSAGE_CHARS:
+                text = text[:MAX_MESSAGE_CHARS] + "... [truncated]"
+            capped.append({"text": text})
+        history.append({"role": r["role"], "content": capped})
 
     log.info(
         "loaded %d messages for conv %s (compacted=%s)",
