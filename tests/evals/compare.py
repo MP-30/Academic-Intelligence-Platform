@@ -42,6 +42,21 @@ def main():
 
     current = load(baseline_path)
     reference = load(reference_path)
+
+    ref_count = reference.get("metrics", {}).get("count", 0)
+    cur_count = current.get("metrics", {}).get("count", 0)
+    if abs(ref_count - cur_count) > 2:
+        print(
+            f"❌ count mismatch: reference={ref_count}, current={cur_count}",
+            file = sys.stderr,
+            )
+        print(
+             "   Cannot compare partial runs to full references — fix the "
+             "eval reliability first (see ragas_scorer MIN_SCORED guard).",
+             file = sys.stderr,
+            )
+        sys.exit(1)
+
     threshold = settings.eval_regression_threshold
 
     print(f"Reference: {reference['generated_at']}")

@@ -131,30 +131,48 @@ def main():
         embeddings=_judge_embeddings(),
         raise_exceptions=False,
         run_config=RunConfig(
-            timeout=180,
+            timeout=300,
             max_retries=3,
             max_wait=60,
+            max_workers=2
         ),
     )
 
     df = ragas_result.to_pandas()
-    MIN_SCORED = 0.8  # at least 80% of samples must have non-nan faithfulness
 
-    nan_count = df["faithfulness"].isna().sum()
-    scored = len(df) - nan_count
-    ratio = scored / len(df) if len(df) else 0.0
+    # --- Guard: every judged metric must have ≥80% non-NaN rows ---
+    MIN_SCORED = 0.8
+    tracked_metrics = ("faithfulness", "answer_relevancy", "context_precision")
+    failed = []
+    for m in tracked_metrics:
+        nan_count = df[m].isna().sum()
+        scored = len(df) - nan_count
+        ratio = scored / len(df) if len(df) else 0.0
+        print(f"Scored {m}: {scored}/{len(df)} ({ratio:.0%})")
+        if ratio < MIN_SCORED:
+            failed.append((m, nan_count, len(df), ratio))
 
-    print(f"\nScored: {scored}/{len(df)} ({ratio:.0%})")
-    if ratio < MIN_SCORED:
-        print(
-            f"ERROR: {nan_count} of {len(df)} rows have nan faithfulness "
-            f"(only {ratio:.0%} scored, need ≥{MIN_SCORED:.0%})",
-            file=sys.stderr,
-        )
-        print("This is the v0.7 bug — the aggregate would be a fake mean over few rows.",
+    # Diagnostic: which rows have NaN, and on which metrics
+    nan_rows = df[list(tracked_metrics)].isna().any(axis=1)
+    if nan_rows.any():
+        print(f"\n⚠️  {nan_rows.sum()} rows have NaN metrics:")
+        for i, (_, row) in enumerate(df.iterrows()):
+            if nan_rows.iloc[i]:
+                qid = valid[i]["id"] if i < len(valid) else f"row-{i}"
+                parts = [f"{m}={row[m]}" for m in tracked_metrics]
+                print(f"  {qid}: {', '.join(parts)}")
+
+    if failed:
+        print(f"\nERROR: incomplete RAGAS scoring (need ≥{MIN_SCORED:.0%} per metric):",
               file=sys.stderr)
+        for m, nan_count, total, ratio in failed:
+            print(f"  {m}: {nan_count} of {total} NaN ({ratio:.0%} scored)",
+                  file=sys.stderr)
+        print("\nRefusing to write baseline.json — partial means against a full "
+              "reference produce false regressions.", file=sys.stderr)
         sys.exit(1)
 
+    # --- All metrics scored enough — compute aggregates ---
     metrics = {
         "faithfulness": float(df["faithfulness"].mean(skipna=True)),
         "answer_relevancy": float(df["answer_relevancy"].mean(skipna=True)),
