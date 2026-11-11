@@ -18,11 +18,17 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 @router.post("", response_model=DocumentUploadResponse, status_code=202)
 async def upload_document(
     file: UploadFile = File(...),
-    workspace_id: UUID = Form(...),
+    workspace_id: UUID | None = Form(None),
     user_id: UUID = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Upload a PDF, store in S3, enqueue an ingestion job."""
+    """Upload a PDF, store in S3, enqueue an ingestion job.
+
+    workspace_id is optional — defaults to user_id, giving every user their
+    own personal workspace. Multi-tenancy enforcement is unchanged at the
+    SQL layer; explicit workspace_id values still scope queries.
+    """
+    effective_workspace = workspace_id or user_id
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(400, "Only PDF files are accepted")
 
@@ -31,7 +37,7 @@ async def upload_document(
 
     doc = Document(
         user_id=user_id,
-        workspace_id=workspace_id,
+        workspace_id=effective_workspace,
         filename=file.filename,
         s3_key=s3_key,
         doc_type="syllabus",
@@ -46,7 +52,7 @@ async def upload_document(
         db,
         document_id=doc.id,
         user_id=user_id,
-        workspace_id=workspace_id,
+        workspace_id=effective_workspace,
         s3_key=s3_key,
     )
 

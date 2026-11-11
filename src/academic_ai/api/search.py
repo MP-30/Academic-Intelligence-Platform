@@ -16,11 +16,11 @@ async def search(
     user_id=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-
+    effective_workspace = req.workspace_id or user_id
     rows = await hybrid_search(
         db,
         user_id=user_id,
-        workspace_id=req.workspace_id,
+        workspace_id=effective_workspace,
         query_text=req.query,
         query_embedding=embed(req.query),
         top_k=req.top_k,

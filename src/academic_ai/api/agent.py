@@ -83,7 +83,7 @@ def _extract_citations(answer: str, history_new: list[dict]) -> list[AgentCitati
 
     # Fallback 3: bare domain URLs — Mistral drops https:// scheme entirely
     for url in BARE_DOMAIN_RE.findall(answer):
-        url_clean = url.strip().rstrip(".,;:!?)\]")
+        url_clean = url.strip().rstrip(r".,;:!?)\]")
         if not url_clean.startswith(("http://", "https://")):
             url_clean = "https://" + url_clean
         key = ("web", url_clean)
@@ -169,12 +169,13 @@ async def run_agent(
     db: AsyncSession = Depends(get_db),
 ):
     """Multi-turn Strands agent over docs + web with page/URL citations."""
+    effective_workspace = req.workspace_id or user_id
     try:
         conv_id = await get_or_create_conversation(
             db,
             conversation_id=req.conversation_id,
             user_id=user_id,
-            workspace_id=req.workspace_id,
+            workspace_id=effective_workspace,
         )
     except ValueError as e:
         raise HTTPException(404, str(e))
@@ -183,7 +184,7 @@ async def run_agent(
 
     # Bind user context for in-process tools (v0.4 fallback path)
     tok_user = current_user_id_ctx.set(user_id)
-    tok_ws = current_workspace_id_ctx.set(req.workspace_id)
+    tok_ws = current_workspace_id_ctx.set(effective_workspace)
     agent_messages_snapshot: list = []
 
     try:
@@ -191,7 +192,7 @@ async def run_agent(
             # v0.5 default: MCP tools over HTTP
             async with create_agent_with_mcp(
                 user_id=user_id,
-                workspace_id=req.workspace_id,
+                workspace_id=effective_workspace,
                 history=history,
             ) as agent:
                 try:
