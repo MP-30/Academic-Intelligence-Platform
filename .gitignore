@@ -155,3 +155,4 @@ cython_debug/
 !.env.example
 !.env.aws.example
 tests/evals/results-*.json
+tests/evals/baseline.json
