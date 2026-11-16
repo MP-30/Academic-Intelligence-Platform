@@ -47,7 +47,8 @@ SYSTEM_PROMPT = """You are an academic intelligence assistant with two tools:
 2. `search_web(query)` — public web via Tavily
 
 Routing:
-- Questions about user's uploaded content → `search_course_documents`
+- For questions about the user's uploaded content, including references like "this PDF" or "the document I just uploaded", call `search_course_documents` with the topic or question before answering.
+- If a user asks a new question about uploaded content after an earlier search found nothing, search again. A recently uploaded PDF may have finished indexing since the previous turn.
 - Questions needing current/external info → `search_web`
 - Complex comparisons → call BOTH, then synthesize
 
@@ -63,7 +64,7 @@ Do NOT use markdown links like [text](url). Use the [Web: ...] format above.
 Do NOT use footnote markers like [1], [2], or [^1].
 Do NOT invent URLs — only cite URLs returned by search_web.
 
-If a tool fails or returns nothing, explicitly say "Web search returned no results" or "No matching documents found."
+If a tool fails, tell the user which search failed. Say "No matching documents found" only after a successful document search returns no relevant results. If the user mentions a recent upload, suggest checking its indexing status.
 
 Style:
 - Concise bullet lists for multi-part answers

@@ -29,6 +29,7 @@ def _detail(resp: httpx.Response, default: str) -> str:
 
 
 def login(email: str, password: str):
+    email = (email or "").strip()
     if not email or not password:
         return "⚠️ Email and password required", ""
     try:
@@ -64,7 +65,8 @@ def upload_pdf(file_path: str, token: str):
         return _err(f"Upload failed ({r.status_code}): {_detail(r, 'unknown')}"), ""
     d = r.json()
     return (
-        f"✅ **Uploaded**\n\n- document_id: `{d['document_id']}`\n- job_id: `{d['job_id']}`",
+        "**Uploaded and queued for indexing.** Use **Check Status** and wait for **READY** before asking about this PDF.\n\n"
+        f"- document_id: `{d['document_id']}`\n- job_id: `{d['job_id']}`",
         d["document_id"],
     )
 
@@ -83,8 +85,15 @@ def poll_status(doc_id: str, token: str):
     if r.status_code != 200:
         return _err(f"Status check failed ({r.status_code})")
     d = r.json()
-    icons = {"READY": "✅", "PENDING": "⏳", "PROCESSING": "🔄", "FAILED": "❌"}
-    return f"{icons.get(d['processing_status'], '❓')} **{d['processing_status']}** — {d['page_count']} pages"
+    if d["processing_status"] == "READY":
+        return f"✅ **READY** — {d['page_count']} pages. You can ask about this PDF in Chat."
+    if d["processing_status"] == "FAILED" or d.get("job_status") == "FAILED":
+        return "❌ **FAILED** — this PDF could not be indexed."
+    if d.get("job_status") == "RETRY":
+        return "🔄 **RETRY** — indexing encountered an error. Check status again before asking about this PDF."
+    if d.get("job_status") == "PROCESSING":
+        return "🔄 **PROCESSING** — the worker is indexing this PDF."
+    return "⏳ **PENDING** — waiting for the worker to index this PDF."
 
 
 def search(query: str, token: str, top_k: int):

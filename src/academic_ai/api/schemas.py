@@ -1,6 +1,7 @@
+from typing import Annotated
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 
 
 class SearchRequest(BaseModel):
@@ -59,8 +60,8 @@ class RegisterRequest(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    email: str
-    password: str
+    email: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+    password: str = Field(min_length=1)
 
 
 class TokenResponse(BaseModel):

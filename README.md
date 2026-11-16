@@ -201,7 +201,7 @@ aws --endpoint-url=http://localhost:4566 sqs create-queue --queue-name ingestion
 # 6. Run migrations
 uv run alembic upgrade head
 
-# 7. Start all services (API + worker + UI in one terminal)
+# 7. Start the API, worker, UI, and enabled local MCP tools
 make dev
 ```
 

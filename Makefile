@@ -90,14 +90,22 @@ ui:  ## Run Gradio UI (foreground)
 	uv run python -m academic_ai.ui.app
 
 .PHONY: dev
-dev:  ## Run API + worker + UI (Ctrl+C stops all)
+dev:  ## Run API + worker + UI and local MCP tools (Ctrl+C stops all)
 	@echo "🚀 Starting API (:$(API_PORT)) + UI (:$(UI_PORT))"
 	@if [ "$(SKIP_WORKER)" = "1" ]; then \
 		echo "   ⏭️  Worker skipped (SKIP_WORKER=1) — ECS handles ingestion"; \
 	else \
 		echo "   ▶️  Worker included — local worker polls SQS"; \
 	fi
-	@trap 'kill 0' EXIT INT TERM; \
+	@local_mcp_servers=$$(uv run python -c 'from academic_ai.config import settings; \
+		servers = (("doc", settings.doc_mcp_url, settings.doc_mcp_port), \
+		           ("web", settings.web_mcp_url, settings.web_mcp_port)); \
+		print(" ".join(name for name, url, port in servers if settings.use_mcp_tools \
+		               and url in (f"http://localhost:{port}/mcp", f"http://127.0.0.1:{port}/mcp")))') || exit $$?; \
+		trap 'kill 0' EXIT INT TERM; \
+		for tool in $$local_mcp_servers; do \
+			uv run python -m academic_ai.mcp_servers.$${tool}_server & \
+		done; \
 		uv run uvicorn academic_ai.main:app --host $(API_HOST) --port $(API_PORT) --reload & \
 		if [ "$(SKIP_WORKER)" != "1" ]; then \
 			uv run python -m academic_ai.ingestion & \
