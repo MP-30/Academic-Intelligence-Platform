@@ -3,13 +3,12 @@
 [![CI](https://github.com/MP-30/Academic-Intelligence-Platform/actions/workflows/ci.yml/badge.svg)](https://github.com/MP-30/Academic-Intelligence-Platform/actions/workflows/ci.yml)
 [![Evals](https://github.com/MP-30/Academic-Intelligence-Platform/actions/workflows/evals.yml/badge.svg)](https://github.com/MP-30/Academic-Intelligence-Platform/actions/workflows/evals.yml)
 [![Python 3.14](https://img.shields.io/badge/python-3.14-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Production RAG system that answers questions over academic PDFs with page-cited results. An agent routes between private document search and live web search via LLM tool selection. Tools are extracted into MCP servers, making them protocol-compliant and reusable across any MCP client. Quality is gated nightly by a RAGAS eval suite; multi-turn conversations stay bounded via rolling summary compaction.
+Production RAG system that answers questions over academic PDFs with page-cited results. An agent routes between private document search and live web search via LLM tool selection. Document and web search are exposed through MCP servers using streamable HTTP. A separate nightly RAGAS workflow measures answer quality. Rolling summary compaction limits the conversation history sent to the model.
 
 **Live:** [https://ai.adityalive.tech](https://ai.adityalive.tech)
 
-**Latest eval baseline:** faithfulness 0.90 · context precision 0.98 · citation accuracy 0.75 · relevancy 0.84
+**Recorded baseline from November 11, 2026:** faithfulness 0.90 · context precision 0.98 · citation page overlap 0.75 · answer relevancy 0.84. These are historical scores. The current reference JSON contains an invalid value and must be repaired before comparisons can run.
 
 ---
 
@@ -20,11 +19,13 @@ Production RAG system that answers questions over academic PDFs with page-cited 
 3. **Ask a question** — hybrid search (vector similarity + full-text) fused via Reciprocal Rank Fusion
 4. **Get a cited answer** — the LLM synthesizes a response citing exact page numbers (`[Doc p.3]`)
 5. **Agent decides what to search** — routes between your documents and the live web (Tavily) based on the question
-6. **Multi-turn conversations stay bounded** — after 5 turns, older messages get summarized into a rolling summary; context size stays constant regardless of conversation length
-7. **Tools exposed via MCP** — the same doc-search and web-search tools work with Claude Desktop, Cursor, or Cline
-8. **Quality is measured, not assumed** — a RAGAS eval suite scores faithfulness, context precision, and citation accuracy nightly; regressions >5% fail CI against a frozen reference
+6. **Multi-turn conversations stay bounded** — after more than 5 turns, older messages are summarized while recent messages are retained
+7. **Tools exposed via MCP** — compatible clients can connect over streamable HTTP when configured with the required user-context headers and network access
+8. **Quality is measured, not assumed** — a RAGAS eval suite scores faithfulness, context precision, and citation accuracy nightly; a drop greater than 0.05 in a tracked metric fails the eval workflow against a frozen reference
 
-Every answer is verifiable — citations point to the exact PDF page the claim came from, and every code change is measured against the eval baseline before it ships.
+The assistant is instructed to cite PDF pages and web sources. Citation grounding currently depends on model behavior. Deployment and nightly evals are separate workflows.
+
+Start with **Upload & Ingest**, upload a text PDF, and use **Check Status** until it shows **READY**. Ask about the PDF in **Chat**. Use the **Search** tab to inspect retrieved passages if an answer misses the document. See the [Terraform repository](https://github.com/MP-30/academic-intelligence-platform-terraform) for the AWS deployment.
 
 ---
 
@@ -103,17 +104,18 @@ flowchart TB
 
     ALB --> UI_Route --> Gradio
     ALB --> API_Route --> FastAPI
-    Gradio -->|"HTTPS API"| FastAPI
+    Gradio -->|"HTTPS API requests"| ALB
 
-    Gradio -.-> Cognito
     FastAPI -.-> Cognito
 
-    Gradio -->|"Upload PDF"| S3
-    S3 --> SQS
+    FastAPI -->|"Store PDF"| S3
+    FastAPI -->|"Publish ingestion job"| SQS
     SQS --> Consumer
     Embed -->|"Generate embeddings"| Bedrock
     Embed -->|"Store chunks + vectors"| RDS
 
+    FastAPI -->|"Documents and conversations"| RDS
+    DocMCP -->|"Query embedding"| Bedrock
     DocMCP -->|"Hybrid Retrieval"| RDS
     Agent -->|"LLM Inference"| Bedrock
     Compactor -->|"Summarize"| Bedrock
@@ -142,7 +144,7 @@ flowchart TB
 | **Language** | Python 3.14 |
 | **API** | FastAPI · Pydantic v2 |
 | **Database** | PostgreSQL 18 + pgvector + tsvector |
-| **ORM** | SQLAlchemy 2.0 (async via asyncpg; sync psycopg for worker) |
+| **ORM** | SQLAlchemy 2.x (asyncpg locally; psycopg for ECS and the worker) |
 | **Migrations** | Alembic |
 | **Embeddings** | Amazon Bedrock Titan v2 (1024-dim, normalized) |
 | **LLM** | Amazon Bedrock Mistral Large 3 |
@@ -151,7 +153,7 @@ flowchart TB
 | **Web search** | Tavily API |
 | **Auth** | AWS Cognito (JWT via JWKS) |
 | **UI** | Gradio |
-| **Async queue** | Amazon SQS (+ DLQ, 5-retry redrive) |
+| **Async queue** | Amazon SQS (+ DLQ, maxReceiveCount=5) |
 | **Evals** | RAGAS · LLM-as-judge via Bedrock |
 | **Container** | Docker (Python 3.14-slim · uv · psycopg) |
 | **Orchestration** | ECS Fargate (3 tasks) |
@@ -164,61 +166,86 @@ flowchart TB
 
 ### Prerequisites
 
-- Python 3.14+
-- [uv](https://docs.astral.sh/uv/) package manager
-- Docker + Docker Compose
-- LocalStack Pro (`lstk` CLI) — for local S3 + SQS
-- AWS account with Bedrock access (Titan v2 + Mistral enabled in `us-east-1`)
-- Tavily API key (free tier: 1000 requests/month)
+- Python 3.14+, [uv](https://docs.astral.sh/uv/), Docker Compose, AWS CLI, and `jq`
+- LocalStack available at `http://localhost:4566`; the Makefile uses the `lstk` CLI
+- An AWS profile with access to Titan v2 embeddings and the configured Mistral model in `us-east-1`
+- A Cognito user pool and app client supporting `USER_PASSWORD_AUTH`, plus a user with a permanent password
+- A Tavily API key for web search
+
+Local development uses PostgreSQL and LocalStack on your machine, with real AWS Cognito, Bedrock, and Tavily calls. Those external services require credentials and can incur charges.
 
 ### Setup
 
 ```bash
-# 1. Clone
-git clone git@github.com:MP-30/Academic-Intelligence-Platform.git
+git clone https://github.com/MP-30/Academic-Intelligence-Platform.git
 cd Academic-Intelligence-Platform
+uv sync --frozen
+```
 
-# 2. Install dependencies (creates .venv + editable install)
-uv sync
+Create `.env` from the following template and replace the credential placeholders. The checked-in `.env.example` is currently empty. The database password below is an example for local development. Keep your real `.env` private. Run the shell examples with Bash. The default dev servers and Compose database ports are reachable on network interfaces, so use a trusted development machine and network.
 
-# 3. Configure environment
-cp .env.example .env
-# Edit .env — set:
-#   POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB
-#   AWS_PROFILE (points to a profile with Bedrock access)
-#   TAVILY_API_KEY
-#   COGNITO_USER_POOL_ID, COGNITO_CLIENT_ID
+```dotenv
+POSTGRES_USER=academic
+POSTGRES_PASSWORD=localdevpassword
+POSTGRES_DB=academic_db
+POSTGRES_PORT=5432
+DATABASE_URL=postgresql+asyncpg://academic:localdevpassword@localhost:5432/academic_db
+AWS_REGION=us-east-1
+AWS_PROFILE=your-bedrock-profile
+S3_ENDPOINT_URL=http://localhost:4566
+SQS_ENDPOINT_URL=http://localhost:4566
+S3_BUCKET=academic-docs-local
+SQS_QUEUE_NAME=ingestion-jobs
+COGNITO_REGION=us-east-1
+COGNITO_USER_POOL_ID=your-user-pool-id
+COGNITO_CLIENT_ID=your-app-client-id
+TAVILY_API_KEY=your-tavily-key
+API_BASE_URL=http://localhost:8000
+USE_MCP_TOOLS=true
+DOC_MCP_URL=http://localhost:8001/mcp
+WEB_MCP_URL=http://localhost:8002/mcp
+```
 
-# 4. Start infra
-docker compose up -d          # postgres on :5432
-lstk restart --persist        # localstack on :4566 (S3 + SQS)
+Start PostgreSQL and LocalStack, then create the bucket and both queues. The `test` credentials in this block apply only to the LocalStack CLI calls.
 
-# 5. Create S3 bucket + SQS queues (once)
-aws --endpoint-url=http://localhost:4566 s3 mb s3://academic-docs-local
-aws --endpoint-url=http://localhost:4566 sqs create-queue --queue-name ingestion-jobs-dlq
-# ... see docs/quickstart.md for the full queue setup with DLQ policy
+```bash
+docker compose up -d --wait
+lstk start --persist
 
-# 6. Run migrations
+(
+  export AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test AWS_DEFAULT_REGION=us-east-1
+  unset AWS_PROFILE AWS_SESSION_TOKEN
+  aws --endpoint-url=http://localhost:4566 s3 mb s3://academic-docs-local
+  DLQ_URL=$(aws --endpoint-url=http://localhost:4566 sqs create-queue \
+    --queue-name ingestion-jobs-dlq --query QueueUrl --output text)
+  DLQ_ARN=$(aws --endpoint-url=http://localhost:4566 sqs get-queue-attributes \
+    --queue-url "$DLQ_URL" --attribute-names QueueArn --query Attributes.QueueArn --output text)
+  QUEUE_ATTRIBUTES=$(jq -nc --arg arn "$DLQ_ARN" '{
+    VisibilityTimeout: "300",
+    ReceiveMessageWaitTimeSeconds: "20",
+    RedrivePolicy: ({deadLetterTargetArn: $arn, maxReceiveCount: "5"} | tojson)
+  }')
+  aws --endpoint-url=http://localhost:4566 sqs create-queue \
+    --queue-name ingestion-jobs --attributes "$QUEUE_ATTRIBUTES"
+)
+
 uv run alembic upgrade head
-
-# 7. Start the API, worker, UI, and enabled local MCP tools
 make dev
 ```
 
-Then open <http://localhost:7860>.
+Open <http://localhost:7860> and log in with your Cognito user. To create a user, call `POST /auth/register` using the interactive API docs at <http://localhost:8000/docs>. Registration requires AWS credentials with Cognito admin permissions. The UI currently provides login only.
 
-### Local testing with real AWS services
+`make dev` starts the API, worker, UI, and enabled MCP servers whose URLs point to localhost. Stop them with Ctrl+C. `docker compose down` stops PostgreSQL and `lstk stop` stops LocalStack.
 
-Production RDS is in a **private subnet** — unreachable from your laptop. For end-to-end local testing, use `.env.test` (local Postgres + real Cognito/Tavily/Bedrock):
+### Local testing with AWS storage
+
+For a separate configuration, copy your local `.env` to `.env.aws`, set `S3_ENDPOINT_URL` and `SQS_ENDPOINT_URL` to empty strings, and use a dedicated development bucket and queue. A local worker consuming the production queue can acknowledge jobs while writing their chunks into the wrong database. Give each database its own ingestion queue, and clear or update `SQS_QUEUE_URL` if it was set. Keep `DATABASE_URL` pointed at a database reachable from your machine. Production RDS is private and needs a private network connection or tunnel.
 
 ```bash
-cp .env.aws .env.test
-# Edit .env.test — point DATABASE_URL at localhost:5432
-set -a; source .env.test; set +a
-uv run uvicorn academic_ai.main:app --port 8000
+make dev ENV_FILE=.env.aws
 ```
 
-This gives you real auth (Cognito), real web search (Tavily), and a real LLM (Bedrock) — only the DB is local.
+The API and worker must use the same database, bucket, and queue. Run a local worker when ingestion writes to your local database.
 
 ### Running evals locally
 
@@ -226,17 +253,20 @@ The eval suite hits the deployed `/agent` endpoint (prod or local) and scores th
 
 ```bash
 # Score responses from prod
-set -a; source .env.aws; set +a
+export EVAL_API_BASE=https://api.adityalive.tech
+export EVAL_USER_EMAIL=your-eval-user@example.com
+read -rsp "Eval user password: " EVAL_USER_PASSWORD; echo
+export EVAL_USER_PASSWORD
 make evals
 ```
 
-Writes `tests/evals/baseline.json`. Compare against `tests/evals/baseline.reference.json` runs automatically as the third step.
+The eval account must already own the fixture documents in the workspace specified in `tests/evals/dataset.yaml`. Configure AWS credentials for the Bedrock judge, using `EVAL_JUDGE_PROFILE` for a named profile. Writes `tests/evals/baseline.json` and compares it with the reference as the third step. The committed reference must be valid JSON first.
 
 ---
 
 ## Endpoints
 
-All endpoints (except `/health` and `/auth/*`) require an `Authorization: Bearer <jwt>` header.
+The `/documents`, `/search`, `/ask`, and `/agent` routes require an `Authorization: Bearer <jwt>` header. `/health`, `/auth/*`, and the default FastAPI documentation routes are public.
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -244,7 +274,7 @@ All endpoints (except `/health` and `/auth/*`) require an `Authorization: Bearer
 | `POST` | `/auth/register` | Create Cognito user |
 | `POST` | `/auth/login` | Authenticate → returns `{id_token, access_token, refresh_token}` |
 | `POST` | `/documents` | Upload PDF + enqueue ingestion job (no `workspace_id` required — defaults to `user_id`) |
-| `GET` | `/documents/{doc_id}` | Poll ingestion status (`PENDING` / `PROCESSING` / `READY` / `FAILED`) |
+| `GET` | `/documents/{doc_id}` | Return document status, job status, page count, and last job error |
 | `POST` | `/search` | Hybrid RRF search — returns raw chunks with page citations |
 | `POST` | `/ask` | LLM answer over retrieved chunks (no tool routing) |
 | `POST` | `/agent` | Strands agent — routes between doc search and web search via MCP tools; supports multi-turn via `conversation_id`; returns `contexts` + `citations` |
@@ -252,30 +282,30 @@ All endpoints (except `/health` and `/auth/*`) require an `Authorization: Bearer
 ### Example: `/agent` call
 
 ```bash
-# 1. Login
-TOKEN=$(curl -s -X POST https://api.adityalive.tech/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"you@example.com","password":"yourpassword"}' \
-  | jq -r .id_token)
+# Log in using /docs or your API client, then paste the returned id_token.
+API_BASE=http://localhost:8000
+read -rsp "Cognito ID token: " TOKEN; echo
 
-# 2. Ask the agent (workspace_id optional — defaults to your user)
-curl -s -X POST https://api.adityalive.tech/agent \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"message": "What elective areas are offered?"}' | jq
+# Send the token through curl's stdin config, avoiding shell history and argv.
+printf 'header = "Authorization: Bearer %s"\n' "$TOKEN" | \
+  curl --fail-with-body --silent --show-error --config - \
+    -X POST "$API_BASE/agent" \
+    -H 'Content-Type: application/json' \
+    -d '{"message": "What elective areas are offered?"}' | jq
+unset TOKEN
 ```
 
-**Response:**
+**Illustrative response**
 
 ```json
 {
-  "conversation_id": "d8e5d422-...",
+  "conversation_id": "d8e5d422-07e8-4b8c-916d-2f12eb76ee9e",
   "response": "The elective areas are:\n- **Languages** (Hindi, English, other languages) [Doc p.3]\n- **Sciences** (Biology, Chemistry, Physics) [Doc p.3]...",
   "tool_calls": [
     {"tool": "search_course_documents", "args": {"query": "elective areas"}}
   ],
   "citations": [
-    {"source": "document", "page_number": 3, "document_id": "...", "url": null, "title": null}
+    {"source": "document", "page_number": 3, "document_id": null, "url": null, "title": null}
   ],
   "contexts": [
     " understanding about core business disciplines... Visual; Performing and Creative Arts...",
@@ -284,7 +314,7 @@ curl -s -X POST https://api.adityalive.tech/agent \
 }
 ```
 
-**Multi-turn:** pass the `conversation_id` from the previous response to continue the same session. After 5 turns, older messages are automatically compacted into a rolling summary (see [Memory Compaction](#memory-compaction)).
+**Multi-turn:** pass the `conversation_id` from the previous response to continue the same session. After more than 5 turns, older messages are eligible to be compacted into a rolling summary (see [Memory Compaction](#memory-compaction)).
 
 **`contexts`** contains the actual retrieved chunk text — useful for transparency (UI displays them in a collapsible inspector) and required for eval scoring (`faithfulness`, `context_precision`).
 
@@ -305,7 +335,7 @@ PDF upload → S3 → SQS job → Worker (ECS Fargate)
                                 └─ Update documents.processing_status = 'READY'
 ```
 
-The worker is **idempotent** — `ON CONFLICT (document_id, chunk_index) DO NOTHING` means re-processing is safe. SQS retries up to 5 times before moving a message to the DLQ, and a `status == READY` guard short-circuits duplicate deliveries.
+Chunk insertion deduplicates by `(document_id, chunk_index)` using `ON CONFLICT DO NOTHING`. Completed jobs are acknowledged without reprocessing. Redrive is configured with `maxReceiveCount=5`. Concurrent deliveries can still repeat embedding work; the database commit and queue publication are separate operations.
 
 ### Hybrid Retrieval (RRF)
 
@@ -329,17 +359,17 @@ The `FULL OUTER JOIN` keeps chunks found by **either** retriever, so a chunk fou
 - `search_course_documents(query)` — MCP tool on the `doc-mcp` sidecar (`:8001`)
 - `search_web(query)` — MCP tool on the `web-mcp` sidecar (`:8002`)
 
-The LLM decides which tool(s) to call based on question type:
+The prompt asks the LLM to choose tools as follows. Actual tool calls depend on the model response.
 
 | Question type | Tool selected |
 |---|---|
 | "What's in my syllabus?" | `search_course_documents` |
 | "Latest RAG research?" | `search_web` |
-| "Compare my syllabus to industry" | **both** (sequential) |
+| "Compare my syllabus to industry" | **both** |
 
 **Multi-turn memory** persists user + assistant turns in the `messages` table and a rolling summary in `conversations.rolling_summary`.
 
-**Security:** The LLM never sees `user_id`. Auth is bound server-side into an `X-User-Id` header on the MCP connection, and tools scope every query to that user at the SQL level. Tenant isolation is tested in CI (attacker user + real workspace → 0 rows).
+**Security:** The API derives the user ID from the verified JWT and passes it through an `X-User-Id` MCP header. The tool schema does not ask the model to supply a user ID. Retrieval SQL scopes queries to that user. Document MCP trusts these headers and is intended for the private API-sidecar connection. Tenant isolation is tested in CI (attacker user + real workspace → 0 rows).
 
 ### Memory Compaction
 
@@ -352,27 +382,28 @@ Turn 7  ──────────►  [10 unsummarized]  no-op
 Turn 8  ──────────►  [12 unsummarized]  →  compact 4 more into rolling summary
 Turn 9  ──────────►  [10 unsummarized]  no-op
 ...
-Steady state:  rolling summary (~200 words) + 8 verbatim messages
+After compaction: rolling summary + 8 recent messages
 ```
 
-**Key properties:**
-- **Background task** — compaction fires *after* the response is sent via FastAPI `BackgroundTasks`, so users never wait for the Bedrock summarization call
-- **Mark-summarized, not delete** — `messages.summarized = TRUE` preserves history for analytics; context loading filters on this flag
-- **Rolling, not fixed** — each compaction merges new turns into the existing summary (prompt: *"merge new turns into previous summary, don't repeat"*), so the invariant holds regardless of conversation length
-- **Configurable trigger** — `summary_trigger_turns = 5`, `recent_messages_keep = 8` (messages, not turns). Trigger chosen so compaction fires before accumulated history causes ALB timeout (180s)
+**Key properties**
 
-Trade-off: compaction loses some verbatim detail from older turns. On the eval suite, faithfulness stays within 0.02 of the uncompacted baseline (see [Evals](#evals)).
+- **Background task** — compaction is scheduled after the response through FastAPI `BackgroundTasks`. Its synchronous Bedrock call can still block the API event loop and delay other requests
+- **History retention** — `messages.summarized = TRUE` preserves history for analytics; context loading filters on this flag
+- **Rolling summary** — each compaction merges new turns into the existing summary (prompt: *"merge new turns into previous summary, don't repeat"*). Successful compaction keeps the recent-message tail bounded; failed summarization leaves history available for a later retry
+- **Configurable trigger** — `summary_trigger_turns = 5`, `recent_messages_keep = 8` (messages, not turns). The trigger counts stored messages; it does not enforce a request time limit
+
+Trade-off: compaction loses some verbatim detail from older turns. The nightly dataset uses independent questions. Multi-turn compaction is checked by the manual smoke test described in [Testing](#testing).
 
 ### Evals
 
-The eval suite runs nightly against production and gates the pipeline on regression. Four metrics per run:
+The eval suite runs nightly against production. A regression fails that workflow; deployment does not require a passing eval run. Four metrics per run:
 
 | Metric | What it measures | Judge |
 |---|---|---|
 | **faithfulness** | Do the answer's claims appear in the retrieved chunks? (hallucination) | RAGAS LLM |
 | **answer_relevancy** | Does the answer actually address the question? (verbosity) | RAGAS embeddings |
 | **context_precision** | Are the retrieved chunks relevant to the ground truth? (retrieval quality) | RAGAS LLM |
-| **citation_accuracy** | Do the cited pages match `expected_pages` in the dataset? (custom) | Deterministic |
+| **citation_accuracy** | Does at least one cited page overlap `expected_pages`? (custom) | Deterministic |
 
 **How it works:**
 
@@ -392,18 +423,23 @@ tests/evals/baseline.json    ← latest run (gitignored)
 tests/evals/compare.py       ← vs baseline.reference.json, exit 1 if metric drops >0.05
 ```
 
-**Why nightly, not per-push:** RAGAS's LLM-as-judge has ~2pp inherent variance per metric (the judge re-parses answers slightly differently each run). Per-push gating with a 0.05 threshold would fail randomly on judge noise, not real regressions. Nightly gating gives 10× the variance headroom.
+The nightly schedule limits judge cost. The comparison uses an absolute 0.05 threshold. Scheduling alone does not reduce judge variance; repeated runs are needed to measure it.
 
-**Guards against partial runs:**
+**Current scoring limits**
 
-- `ragas_scorer.py` enforces `MIN_SCORED = 0.8` per metric — if any metric has >20% `NaN` rows, it refuses to write `baseline.json`
-- `compare.py` exits 1 if `reference.count` and `current.count` differ by >2 — prevents comparing partial runs against full references
+- Rows with no retrieved contexts are excluded before RAGAS scoring.
+- Each judged metric needs at least 80% non-NaN results among the retained rows.
+- The comparison allows a count difference of two and skips missing metrics.
+- Citation accuracy measures page overlap and does not verify document identity or complete citation coverage.
+- The current reference contains malformed JSON. Restore a valid reviewed reference before using the comparison.
 
-**The eval found a real bug at v0.7 ship:** the initial `faithfulness = 1.0` was a fake metric. `/agent` wasn't returning retrieved chunk text, so RAGAS fell back to comparing the answer against itself. Fixing it required adding a `contexts` field to `AgentResponse` — an API change, not an eval change. The eval surfaced a production bug it couldn't have caught without a code fix.
+**The eval found a real bug at v0.7 ship:** the initial `faithfulness = 1.0` was a fake metric. `/agent` wasn't returning retrieved chunk text, so RAGAS fell back to comparing the answer against itself. Fixing it required adding a `contexts` field to `AgentResponse` — an API change, not an eval change. Returning the retrieved contexts made the faithfulness score meaningful.
 
 ---
 
 ## Testing
+
+Use a migrated development or test database. The tenant-isolation fixture commits seed rows and deletes them during cleanup. Check `DATABASE_URL` before running database tests.
 
 ```bash
 # Full test suite
@@ -425,7 +461,7 @@ uv run pytest tests/test_tenant_isolation.py -v
 
 **Evals:** see [Evals](#evals) above. Run with `make evals`.
 
-CI runs the full suite, import smoke tests, and a Docker build on every push (see `.github/workflows/ci.yml`). The nightly eval workflow (`.github/workflows/evals.yml`) runs the RAGAS suite separately.
+CI runs the automated suite, import smoke tests, and a Docker build on pushes and pull requests targeting `main` (see `.github/workflows/ci.yml`). The nightly eval workflow (`.github/workflows/evals.yml`) runs the RAGAS suite separately.
 
 ---
 
@@ -442,14 +478,14 @@ Two automated workflows — deploy is a button, evals run nightly.
 
 **What it does:**
 
-1. Assumes `GitHubActionsDeployRole` via **OIDC** (short-lived token, no stored secrets)
+1. Assumes the role configured by `AWS_DEPLOY_ROLE_ARN` via **OIDC** (short-lived AWS credentials)
 2. Builds the Docker image (`linux/amd64`, matching ECS)
 3. Pushes to ECR as `:latest`
 4. Triggers `aws ecs update-service --force-new-deployment`
 5. Waits for `aws ecs wait services-stable`
 6. Polls `https://api.adityalive.tech/health` until it returns `200` (retries 10×)
 
-**Rollback:** re-run the workflow from a previous commit hash.
+**Recovery:** rebuild the intended earlier revision and redeploy it. The current workflow publishes `:latest` and has no explicit commit-SHA input or automated rollback step. Its health check verifies API liveness; verify login, ingestion, and document search separately after a release.
 
 ### Evals (`evals.yml`) — nightly + manual trigger
 
@@ -457,15 +493,15 @@ Two automated workflows — deploy is a button, evals run nightly.
 2. Hits production `/agent` with 10 test questions
 3. Scores with RAGAS (Bedrock judge)
 4. Compares against `baseline.reference.json`
-5. Exits 1 on regression >0.05 → **pipeline fails on quality regression**
+5. Exits 1 on regression >0.05 → **eval workflow fails on quality regression**
 
 On failure, the workflow dumps AWS identity, env vars (masked), and available Bedrock models — so the next red run is self-diagnosing instead of a guessing game.
 
 ### Infrastructure
 
-All AWS infra is provisioned by a separate Terraform repo: [academic-intelligence-platform-terraform](https://github.com/MP-30/academic-intelligence-platform-terraform)
+AWS resource configuration and operator-managed prerequisites are documented in the Terraform repo: [academic-intelligence-platform-terraform](https://github.com/MP-30/academic-intelligence-platform-terraform)
 
-Runs at **~$63/month** in production (see [Cost](#cost)).
+See [Cost](#cost) for the scope and limitations of the historical deployment estimate.
 
 ---
 
@@ -522,7 +558,7 @@ Runs at **~$63/month** in production (see [Cost](#cost)).
 │   └── main.py           FastAPI app + routers
 │
 ├── alembic/              Migrations
-├── docs/                 Quickstart, roadmap, version deep dives
+├── docs/adr/             Architecture decision record
 ├── tests/
 │   ├── evals/            RAGAS eval suite
 │   │   ├── dataset.yaml          10 questions
@@ -538,8 +574,7 @@ Runs at **~$63/month** in production (see [Cost](#cost)).
 │   └── conftest.py
 │
 ├── scripts/
-│   ├── ecs_entrypoint.sh  5-mode dispatch (worker/api/ui/mcp-doc/mcp-web)
-│   └── build_lambda.sh    (unused — kept for reference)
+│   └── ecs_entrypoint.sh  5-mode dispatch (worker/api/ui/mcp-doc/mcp-web)
 │
 ├── .github/workflows/
 │   ├── ci.yml            Lint + test + Docker build
@@ -548,7 +583,7 @@ Runs at **~$63/month** in production (see [Cost](#cost)).
 │
 ├── docker-compose.yml    Postgres for local dev
 ├── Dockerfile            Single image, 5 entrypoint modes
-├── Makefile              dev, test, evals, psql, urls, build-lambda
+├── Makefile              dev, test, evals, psql, urls, build-image
 └── pyproject.toml        uv dependencies + ruff config
 ```
 
@@ -556,64 +591,54 @@ Runs at **~$63/month** in production (see [Cost](#cost)).
 
 ## Design Decisions
 
-### Why Bedrock (not OpenAI)?
+### Why Bedrock?
 
-- **Compliance** — data stays in AWS, no third-party LLM API calls
+- **Model hosting** — generation and embeddings use Bedrock. Web search sends queries to Tavily
 - **IAM auth** — no API keys to rotate for LLM/embeddings
 - **Cost visibility** — one line item in AWS Cost Explorer
 
-### Why pgvector (not Pinecone)?
+### Why pgvector?
 
 - **One database** — relational + vectors + full-text + JSONB
 - **Hybrid search in one query** — RRF fusion is a single SQL statement
 - **No extra bill** — no separate vector DB to pay for
-- **Scales to ~1M vectors** — sufficient for this use case
+- **Indexing** — HNSW and GIN indexes support vector and full-text retrieval; capacity needs workload testing
 
-### Why ECS Fargate (not Lambda)?
+### Why ECS Fargate?
 
-- **Private RDS access** — Lambda in a VPC forces a NAT gateway (~$32/mo) for outbound calls; Lambda outside the VPC can't reach private RDS
+- **Deployment fit** — a persistent SQS worker and colocated HTTP MCP sidecars fit the current ECS task model
 - **EC2-free** — no instance patching
-- **Sidecar support** — MCP servers run in the same task, no extra Fargate cost
-- **Same Docker image** — migrates 1:1 to EKS at v0.12
+- **Sidecar support** — MCP servers share the API task’s allocated CPU and memory
+- **Shared image** — one image supports the API, UI, worker, and MCP entrypoints
 
-### Why MCP (not in-process tools)?
+### Why MCP?
 
-- **Protocol compliance** — tools work with any MCP client (Claude Desktop, Cursor, Zed)
+- **Transport** — streamable HTTP exposes tools to compatible clients. External clients need the required headers and an authorized network path
 - **Reusability** — the same server can be consumed by multiple agents
-- **Foundation for A2A** — multi-agent orchestration (v0.10) requires protocol-level tools
+- **Future reuse** — agents can share the document and web tools through MCP
 
-### Why nightly evals (not per-push)?
+### Why nightly evals?
 
-- **LLM-as-judge variance** — RAGAS has ~2pp inherent variance per metric. Per-push gating with a 0.05 threshold fails randomly on judge noise, not real regressions
-- **Cost** — 30 judge calls × 30 nights = ~$15/mo. Per-push would add ~$150/mo (30 pushes/day × $0.50)
-- **Coverage** — evals measure quality, CI measures correctness. They're complementary layers, not substitutes
+The schedule limits recurring Bedrock judge calls. CI checks application correctness, and the nightly workflow measures answer quality against production. Run `make evals` manually when changing prompts or retrieval. Measure repeated runs before treating a score difference as a stable signal.
 
-For high-frequency changes (prompt tweaks, retrieval tuning), a manual `make evals` before commit gives same-day signal without 24h lag.
+### Why rolling summaries?
 
-### Why rolling summary (not fixed)?
-
-- **Fixed** fails at turn 30 — verbatim tail grows unboundedly again
-- **Rolling** preserves the invariant: context size stays constant regardless of conversation length
+- **Rolling** bounds retained history by combining an updated summary with recent messages
 - **Implementation** is prompt engineering: each compaction gets `previous_summary + new_turns` and merges. The rolling prompt has 3 cases to handle (first compaction, merge new turns, dedup redundant content)
-- **Trade-off** — loses verbatim detail from older turns. Baseline faithfulness stays within 0.02 of the uncompacted state
+- **Trade-off** — summarization loses some verbatim detail from older turns; multi-turn quality needs separate evaluation
 
-### Why ALB timeout 180s (not default 60s)?
+### Why a 180-second ALB timeout?
 
-- **LLM workloads** — 3-15s per Bedrock call, 30-90s per multi-turn request with large context
-- **60s default** kills mid-request, returning HTML 504 that breaks JSON parsers
-- **180s** gives ~2× headroom over typical multi-turn latency
-- **Real fix** is keeping requests fast (response cap + compaction), not just bumping timeout. Timeout is a safety margin, not a substitute for performance
+The ALB idle timeout is configured to 180 seconds for requests that include multiple model or tool calls. The UI's agent request timeout is also 180 seconds, while the eval runner uses 90 seconds. These are configured limits; latency measurements are needed to establish typical and worst-case behavior.
 
 ---
 
 ## Roadmap
 
-See [docs/ROADMAP.md](./docs/ROADMAP.md) for the full version history.
-
 **Recently shipped:**
 
 - ✅ **v0.9** — Memory compaction (rolling summary, background task)
-- ✅ **v0.7** — Evals (RAGAS) with nightly CI gate
+- ✅ **v0.7** — Evals (RAGAS) with a separate nightly workflow
 - ✅ **v0.6** — CI/CD pipelines (GitHub Actions + OIDC)
 - ✅ **v0.5** — MCP servers as sidecar containers
 - ✅ **v0.4** — Strands agent with tool routing
@@ -628,32 +653,25 @@ See [docs/ROADMAP.md](./docs/ROADMAP.md) for the full version history.
 
 ## Documentation
 
-- [Quickstart (detailed)](./docs/quickstart.md) — step-by-step first-time setup
-- [Roadmap](./docs/ROADMAP.md) — version history and planned features
-- [v0.5 Deep Dive — MCP](./docs/v0.5-mcp.md)
-- [v0.6 Deep Dive — CI/CD](./docs/v0.6-cicd.md)
-- [v0.7 Deep Dive — Evals](./docs/v0.7-evals.md)
-- [v0.9 Deep Dive — Memory Compaction](./docs/v0.9-memory.md)
+- [Architecture decision record](./docs/adr/001-modular-monolith-strands-jsonb.md)
+- [Infrastructure and deployment setup](https://github.com/MP-30/academic-intelligence-platform-terraform)
+- [Application configuration](./src/academic_ai/config.py)
+- [CI workflow](./.github/workflows/ci.yml)
+- [Nightly eval workflow](./.github/workflows/evals.yml)
+
+## Current limitations
+
+- PDF parsing extracts embedded text. Image-only PDFs need OCR; the worker currently can report `READY` with zero chunks.
+- Document tool selection and citation grounding depend on model behavior. Prompt instructions are the current model guardrails.
+- Automated tenant tests exercise retrieval SQL. An upload-to-answer API integration test is still needed.
+- Failed ingestion jobs stay at `RETRY` in the database even if SQS later moves them to the DLQ.
 
 ---
 
 ## Cost
 
-Running in production at **~$63/month**:
-
-| Service | Monthly |
-|---|---|
-| ECS Fargate (API + worker + UI tasks) | ~$36 |
-| RDS `db.t3.micro` | $0 (free tier, first 12 months) |
-| ALB | ~$8 |
-| Bedrock (embeddings + LLM + **eval runs**) | ~$18 |
-| S3, SQS, ECR, CloudWatch | ~$0.50 |
-| **Total** | **~$63/month** |
-
-> RDS cost is $0 only while the 12-month free tier lasts; expect the total to rise afterwards. Bedrock cost includes ~$15/mo for nightly eval runs (30 judge calls/night × ~$0.50/run).
-
----
+The original deployment estimate was approximately **$63/month** for ECS tasks, ALB, Bedrock usage including nightly evals, and storage/logging, assuming an RDS billing credit. This is an undated project estimate. Actual charges depend on account credits, region, runtime, traffic, and token usage. Check AWS Cost Explorer for a dated total before using this estimate for budgeting.
 
 ## License
 
-MIT — see [LICENSE](./LICENSE) for details.
+A license file has not been added to this repository.
