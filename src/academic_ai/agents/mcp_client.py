@@ -1,8 +1,3 @@
-"""MCP client wrapper — connects Strands agent to external MCP servers.
-
-Each request creates a fresh connection (no long-lived state across users).
-Headers are bound per-request from the authenticated user_id/workspace_id.
-"""
 import logging
 from uuid import UUID
 

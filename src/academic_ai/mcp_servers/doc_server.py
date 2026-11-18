@@ -1,12 +1,3 @@
-"""MCP server — document search over user's uploaded PDFs.
-
-Run: python -m academic_ai.mcp_servers.doc_server
-Listens on http://0.0.0.0:8001/mcp (streamable HTTP transport).
-
-Auth headers on each request:
-    X-User-Id: <uuid>        (required)
-    X-Workspace-Id: <uuid>   (optional)
-"""
 import asyncio
 import logging
 from uuid import UUID
@@ -29,35 +20,35 @@ mcp = MCPServer("academic-doc-mcp")
 
 
 def _user_context(ctx: Context | None) -> tuple[UUID | None, UUID | None]:
-    """Extract X-User-Id / X-Workspace-Id from incoming HTTP headers.
-
-    In v2, MCPServer tools read headers from `ctx.headers` (a mapping).
-    """
-    if ctx is None or not getattr(ctx, "headers", None):
-        log.warning("no ctx.headers available")
+    """Read user context from the trusted API's MCP request headers."""
+    headers = getattr(ctx, "headers", None)
+    if not headers:
+        log.warning("missing MCP request headers")
         return None, None
 
-    h = ctx.headers
-    # HTTP headers are case-insensitive; try both common forms
-    user_id_str = h.get("x-user-id") or h.get("X-User-Id")
-    workspace_id_str = h.get("x-workspace-id") or h.get("X-Workspace-Id")
+    user_id_str = headers.get("x-user-id", headers.get("X-User-Id"))
+    workspace_id_str = headers.get(
+        "x-workspace-id",
+        headers.get("X-Workspace-Id"),
+    )
 
     if not user_id_str:
-        log.warning("missing X-User-Id header")
+        log.warning("missing MCP user header")
         return None, None
 
     try:
         user_id = UUID(user_id_str)
-    except ValueError:
-        log.warning("invalid X-User-Id: %s", user_id_str)
+    except (ValueError, TypeError, AttributeError):
+        log.warning("invalid MCP user header")
         return None, None
 
     workspace_id = None
-    if workspace_id_str:
+    if workspace_id_str is not None:
         try:
             workspace_id = UUID(workspace_id_str)
-        except ValueError:
-            log.warning("invalid X-Workspace-Id: %s", workspace_id_str)
+        except (ValueError, TypeError, AttributeError):
+            log.warning("invalid MCP workspace header")
+            return None, None
 
     return user_id, workspace_id
 
@@ -96,7 +87,7 @@ def search_course_documents(
     """
     user_id, workspace_id = _user_context(ctx)
     if user_id is None:
-        return [{"error": "authentication required: missing X-User-Id header"}]
+        return [{"error": "invalid or missing user context"}]
 
     top_k = min(max(top_k, 1), 20)
 
