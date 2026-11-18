@@ -27,10 +27,11 @@ async def get_or_create_conversation(
             select(Conversation).where(
                 Conversation.id == conversation_id,
                 Conversation.user_id == user_id,
+                Conversation.workspace_id == workspace_id,
             )
         )).scalar_one_or_none()
         if row is None:
-            raise ValueError(f"Conversation {conversation_id} not found for user")
+            raise ValueError("Conversation not found in the current workspace")
         return row.id
 
     conv = Conversation(
