@@ -23,7 +23,7 @@
     "doc-02": {
       "faithfulness": 1.0,
       "answer_relevancy": 0.8366096658472811,
-      "context_precision": 0.9999RAGAS9999998,
+      "context_precision": 0.99999999998,
       "expected_pages": [
         9
       ],
