@@ -86,10 +86,12 @@ jobs:
       - name: Compare vs reference baseline
         run: uv run python -m tests.evals.compare
 
-      - name: Upload baseline artifact
+      - name: Upload eval artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: baseline-${{ github.run_id }}
-          path: tests/evals/baseline.json
+          path: |
+            tests/evals/baseline.json
+            tests/evals/results-*.json
           retention-days: 30
