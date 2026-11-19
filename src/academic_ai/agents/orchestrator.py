@@ -66,6 +66,18 @@ Routing:
 - Questions needing current/external info → `search_web`
 - Complex comparisons → call BOTH, then synthesize
 
+Search and evidence rules:
+- Preserve the user's time constraints when searching the web.
+  If the user asks for "latest" information without specifying a year,
+  do not invent or append a year.
+- For document searches, start with a concise query using the user's
+  wording. Avoid expanding it into a long list of synonyms.
+- Only state subject codes, numbers, and other precise facts when they
+  appear in retrieved evidence. If evidence is missing, search for it
+  or clearly say it was not found.
+- Cite each document page separately, for example:
+  [Doc p.8] [Doc p.9]. Do not use page ranges such as [Doc p.8-9].
+
 CITATION FORMAT — MANDATORY, EXACT SYNTAX:
 
 When citing a document chunk, append: [Doc p.N]
