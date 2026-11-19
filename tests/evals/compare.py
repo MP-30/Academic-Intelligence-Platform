@@ -73,6 +73,46 @@ def main():
         ref_val = reference["metrics"].get(metric)
         cur_val = current["metrics"].get(metric)
 
+        if metric == "context_precision":
+            document_ids = {
+                "doc-01", "doc-02", "doc-03", "doc-04",
+                "doc-05", "doc-06", "doc-07", "mixed-01",
+            }
+
+            def document_precision(report):
+                questions = report.get("per_question", {})
+                values = []
+                for question_id in sorted(document_ids):
+                    value = questions.get(question_id, {}).get(
+                        "context_precision"
+                    )
+                    if (
+                        isinstance(value, bool)
+                        or not isinstance(value, (int, float))
+                        or not 0 <= value <= 1
+                    ):
+                        raise ValueError(
+                            f"Missing or invalid precision: {question_id}"
+                        )
+                    values.append(value)
+                return sum(values) / len(values)
+
+            try:
+                ref_val = document_precision(reference)
+                cur_val = document_precision(current)
+            except ValueError as exc:
+                print(f"ERROR: {exc}", file=sys.stderr)
+                sys.exit(1)
+
+            web_precision = current.get("per_question", {}).get(
+                "web-01", {}
+            ).get("context_precision")
+            print(
+                f"Live-web context precision: {web_precision} "
+                "(advisory; excluded from document precision gate)"
+            )
+            metric = "document_ctx_precision"
+
         if ref_val is None or cur_val is None:
             print(f"{metric:<22} {'N/A':>10} {'N/A':>10} {'N/A':>10} {'SKIP':>10}")
             continue
