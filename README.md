@@ -1,14 +1,13 @@
 # Academic Intelligence Platform
 
 [![CI](https://github.com/MP-30/Academic-Intelligence-Platform/actions/workflows/ci.yml/badge.svg)](https://github.com/MP-30/Academic-Intelligence-Platform/actions/workflows/ci.yml)
-[![Evals](https://github.com/MP-30/Academic-Intelligence-Platform/actions/workflows/evals.yml/badge.svg)](https://github.com/MP-30/Academic-Intelligence-Platform/actions/workflows/evals.yml)
 [![Python 3.14](https://img.shields.io/badge/python-3.14-blue.svg)](https://www.python.org/downloads/)
 
-Production RAG system that answers questions over academic PDFs with page-cited results. An agent routes between private document search and live web search via LLM tool selection. Document and web search are exposed through MCP servers using streamable HTTP. A separate nightly RAGAS workflow measures answer quality. Rolling summary compaction limits the conversation history sent to the model.
+RAG application that answers questions over academic PDFs with page citations. A Strands agent uses MCP tools over streamable HTTP to search private documents and the web. Rolling summaries bound conversation history, and a RAGAS suite evaluates answer quality.
 
-**Live:** [https://ai.adityalive.tech](https://ai.adityalive.tech)
+**Deployment status.** The AWS deployment was retired on November 20, 2026. The hosted UI and API are offline. Use the [local quickstart](#quickstart-local-development) to try the application, or follow the [infrastructure setup](https://github.com/MP-30/academic-intelligence-platform-terraform#configure-terraform) to create a fresh deployment.
 
-**Recorded baseline from November 11, 2026:** faithfulness 0.90 · context precision 0.98 · citation page overlap 0.75 · answer relevancy 0.84. These are historical scores. The current reference JSON contains an invalid value and must be repaired before comparisons can run.
+**Recorded baseline (November 11, 2026).** Faithfulness 0.90 · context precision 0.98 · citation page overlap 0.75 · answer relevancy 0.84. The [checked-in reference](./tests/evals/baseline.reference.json) records nine scored questions from that run.
 
 ---
 
@@ -21,17 +20,17 @@ Production RAG system that answers questions over academic PDFs with page-cited 
 5. **Agent decides what to search** — routes between your documents and the live web (Tavily) based on the question
 6. **Multi-turn conversations stay bounded** — after more than 5 turns, older messages are summarized while recent messages are retained
 7. **Tools exposed via MCP** — compatible clients can connect over streamable HTTP when configured with the required user-context headers and network access
-8. **Quality is measured, not assumed** — a RAGAS eval suite scores faithfulness, context precision, and citation accuracy nightly; a drop greater than 0.05 in a tracked metric fails the eval workflow against a frozen reference
+8. **Evaluate answers** — run RAGAS against a running API and compare scores with the recorded baseline
 
-The assistant is instructed to cite PDF pages and web sources. Citation grounding currently depends on model behavior. Deployment and nightly evals are separate workflows.
+The assistant is instructed to cite PDF pages and web sources. Citation grounding currently depends on model behavior.
 
-Start with **Upload & Ingest**, upload a text PDF, and use **Check Status** until it shows **READY**. Ask about the PDF in **Chat**. Use the **Search** tab to inspect retrieved passages if an answer misses the document. See the [Terraform repository](https://github.com/MP-30/academic-intelligence-platform-terraform) for the AWS deployment.
+Once the local app is running, upload [the sample curriculum PDF](./tests/fixtures/Curriculum_SrSec_2025-26.pdf) in **Upload & Ingest** and use **Check Status** until it shows **READY**. In **Chat**, ask “What elective areas are offered?” Page 3 is the expected citation. Use **Search** to inspect the retrieved passages.
 
 ---
 
 ## Architecture
 
-The platform runs on AWS ECS Fargate, with separate UI, API, and background worker tasks. An ALB handles HTTPS ingress and routes traffic based on hostnames. A separate nightly GitHub Actions workflow runs evals against production.
+The original AWS deployment ran on ECS Fargate with separate UI, API, and worker tasks. An ALB routed HTTPS traffic by hostname, and a scheduled GitHub Actions workflow ran evals against the deployed API.
 
 ```mermaid
 flowchart TB
@@ -239,7 +238,7 @@ Open <http://localhost:7860> and log in with your Cognito user. To create a user
 
 ### Local testing with AWS storage
 
-For a separate configuration, copy your local `.env` to `.env.aws`, set `S3_ENDPOINT_URL` and `SQS_ENDPOINT_URL` to empty strings, and use a dedicated development bucket and queue. A local worker consuming the production queue can acknowledge jobs while writing their chunks into the wrong database. Give each database its own ingestion queue, and clear or update `SQS_QUEUE_URL` if it was set. Keep `DATABASE_URL` pointed at a database reachable from your machine. Production RDS is private and needs a private network connection or tunnel.
+For a separate configuration, copy your local `.env` to `.env.aws`, set `S3_ENDPOINT_URL` and `SQS_ENDPOINT_URL` to empty strings, and use a dedicated development bucket and queue. Give each database its own ingestion queue so workers write to the intended database. Clear or update `SQS_QUEUE_URL` if it was set. Keep `DATABASE_URL` pointed at a database reachable from your machine.
 
 ```bash
 make dev ENV_FILE=.env.aws
@@ -249,18 +248,19 @@ The API and worker must use the same database, bucket, and queue. Run a local wo
 
 ### Running evals locally
 
-The eval suite hits the deployed `/agent` endpoint (prod or local) and scores the responses with RAGAS. It requires Bedrock access for the judge LLM + embeddings.
+The eval suite calls `/agent` on a running API and scores the responses with RAGAS. It requires Bedrock access for the judge model and embeddings. Upload the curriculum fixture using your eval account, copy `tests/evals/dataset.yaml` to a local file, and update its workspace IDs to the workspace that owns the fixture. The default upload workspace is your authenticated user ID.
 
 ```bash
-# Score responses from prod
-export EVAL_API_BASE=https://api.adityalive.tech
+export EVAL_API_BASE=http://localhost:8000
+export EVAL_DATASET_PATH=/path/to/your/local-eval-dataset.yaml
 export EVAL_USER_EMAIL=your-eval-user@example.com
-read -rsp "Eval user password: " EVAL_USER_PASSWORD; echo
+read -rsp "Eval user password: " EVAL_USER_PASSWORD
+printf '\n'
 export EVAL_USER_PASSWORD
 make evals
 ```
 
-The eval account must already own the fixture documents in the workspace specified in `tests/evals/dataset.yaml`. Configure AWS credentials for the Bedrock judge, using `EVAL_JUDGE_PROFILE` for a named profile. Writes `tests/evals/baseline.json` and compares it with the reference as the third step. The committed reference must be valid JSON first.
+Configure AWS credentials for the Bedrock judge, using `EVAL_JUDGE_PROFILE` for a named profile. `make evals` writes `tests/evals/baseline.json` and compares it with the committed reference. Keep the question IDs unchanged so the comparison can find the expected per-question scores.
 
 ---
 
@@ -396,7 +396,7 @@ Trade-off: compaction loses some verbatim detail from older turns. The nightly d
 
 ### Evals
 
-The eval suite runs nightly against production. A regression fails that workflow; deployment does not require a passing eval run. Four metrics per run:
+The eval suite historically ran nightly against the hosted API. `make evals` runs the same runner, scorer, and comparison against a configured endpoint. Deployment and evaluation use independent workflows. The suite records four metrics.
 
 | Metric | What it measures | Judge |
 |---|---|---|
@@ -423,7 +423,7 @@ tests/evals/baseline.json    ← latest run (gitignored)
 tests/evals/compare.py       ← vs baseline.reference.json, exit 1 if metric drops >0.05
 ```
 
-The nightly schedule limits judge cost. The comparison uses an absolute 0.05 threshold. Scheduling alone does not reduce judge variance; repeated runs are needed to measure it.
+The comparison fails when a tracked score drops by more than 0.05. Repeated runs help measure judge variance.
 
 **Current scoring limits**
 
@@ -431,7 +431,7 @@ The nightly schedule limits judge cost. The comparison uses an absolute 0.05 thr
 - Each judged metric needs at least 80% non-NaN results among the retained rows.
 - The comparison allows a count difference of two and skips missing metrics.
 - Citation accuracy measures page overlap and does not verify document identity or complete citation coverage.
-- The current reference contains malformed JSON. Restore a valid reviewed reference before using the comparison.
+- The comparison checks context precision on the document and mixed questions. Web-only context precision is reported for reference.
 
 **The eval found a real bug at v0.7 ship:** the initial `faithfulness = 1.0` was a fake metric. `/agent` wasn't returning retrieved chunk text, so RAGAS fell back to comparing the answer against itself. Fixing it required adding a `contexts` field to `AgentResponse` — an API change, not an eval change. Returning the retrieved contexts made the faithfulness score meaningful.
 
@@ -461,15 +461,15 @@ uv run pytest tests/test_tenant_isolation.py -v
 
 **Evals:** see [Evals](#evals) above. Run with `make evals`.
 
-CI runs the automated suite, import smoke tests, and a Docker build on pushes and pull requests targeting `main` (see `.github/workflows/ci.yml`). The nightly eval workflow (`.github/workflows/evals.yml`) runs the RAGAS suite separately.
+CI runs the automated suite, import smoke tests, and a Docker build on pushes and pull requests targeting `main` (see `.github/workflows/ci.yml`). The RAGAS workflow is configured separately and needs a running API and AWS credentials.
 
 ---
 
 ## Deployment
 
-Two automated workflows — deploy is a button, evals run nightly.
+For a fresh deployment, follow the [Terraform setup](https://github.com/MP-30/academic-intelligence-platform-terraform#configure-terraform) and update the AWS account, ECR repository, cluster and service names, and API hostname in [the deploy workflow](./.github/workflows/deploy.yml). Configure a new GitHub OIDC deploy role and set `AWS_DEPLOY_ROLE_ARN`. For hosted evals, also set the new API endpoint in [the eval workflow](./.github/workflows/evals.yml) and configure the eval account and its dataset workspace.
 
-### Deploy (`deploy.yml`) — manual trigger
+### Manual deploy (`deploy.yml`)
 
 1. Open <https://github.com/MP-30/Academic-Intelligence-Platform/actions/workflows/deploy.yml>
 2. Click **Run workflow**
@@ -483,14 +483,16 @@ Two automated workflows — deploy is a button, evals run nightly.
 3. Pushes to ECR as `:latest`
 4. Triggers `aws ecs update-service --force-new-deployment`
 5. Waits for `aws ecs wait services-stable`
-6. Polls `https://api.adityalive.tech/health` until it returns `200` (retries 10×)
+6. Polls `/health` on the configured API hostname until it returns `200` (retries 10×)
 
 **Recovery:** rebuild the intended earlier revision and redeploy it. The current workflow publishes `:latest` and has no explicit commit-SHA input or automated rollback step. Its health check verifies API liveness; verify login, ingestion, and document search separately after a release.
 
-### Evals (`evals.yml`) — nightly + manual trigger
+### Scheduled and manual evals (`evals.yml`)
 
-1. Runs at **03:00 UTC daily**, or on-demand
-2. Hits production `/agent` with 10 test questions
+The workflow YAML still defines a nightly schedule. Its original AWS role and API endpoint were retired with the stack. With a fresh deployment and credentials configured, the workflow follows these steps.
+
+1. Triggers at **03:00 UTC daily** or on demand
+2. Calls the configured `/agent` endpoint with 10 test questions
 3. Scores with RAGAS (Bedrock judge)
 4. Compares against `baseline.reference.json`
 5. Exits 1 on regression >0.05 → **eval workflow fails on quality regression**
@@ -619,7 +621,7 @@ See [Cost](#cost) for the scope and limitations of the historical deployment est
 
 ### Why nightly evals?
 
-The schedule limits recurring Bedrock judge calls. CI checks application correctness, and the nightly workflow measures answer quality against production. Run `make evals` manually when changing prompts or retrieval. Measure repeated runs before treating a score difference as a stable signal.
+The historical nightly schedule limited recurring Bedrock judge calls. Run `make evals` manually against a running API when changing prompts or retrieval. Measure repeated runs before treating a score difference as a stable signal.
 
 ### Why rolling summaries?
 
@@ -643,7 +645,7 @@ The ALB idle timeout is configured to 180 seconds for requests that include mult
 - ✅ **v0.5** — MCP servers as sidecar containers
 - ✅ **v0.4** — Strands agent with tool routing
 
-**Next up:**
+**Ideas for a future release.**
 
 - 📋 **v0.7.1** — Eval polish (30-question dataset, citation completeness metric)
 - 📋 **v0.10** — Multi-agent A2A (HTTP, not AgentCore)
